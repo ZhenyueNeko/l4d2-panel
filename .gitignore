@@ -1,0 +1,39 @@
+# ============================================================
+# Git 忽略清单
+# 原则：只跟踪代码、模板与文档；服务器上的数据/配置/运行时产物不入库
+# ============================================================
+
+# --- 面板配置与敏感信息（服务器上各自维护，切勿入库） ---
+.env
+.env.bak
+
+# --- 服务器运行数据（面板自动生成，覆盖会导致数据丢失） ---
+data/instances.json
+data/console_logs/
+panel.log
+*.log
+
+# --- 运行时自动创建的目录（面板/脚本首次运行会自动 mkdir，统一在 data/） ---
+data/Available_Plugins/
+data/Installed_Receipts/
+data/Maps/
+data/map_uploads/
+data/upload_chunks/
+data/avatar_cache/
+data/Plugin_Backups/
+data/launch_scripts/
+
+# --- Python 运行时产物 ---
+.venv/
+__pycache__/
+*.py[cod]
+
+# --- 操作系统/编辑器杂项 ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+
+# --- 工具配置（本地保留，不入库） ---
+.zcodeignore

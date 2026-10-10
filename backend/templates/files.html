@@ -1,0 +1,1850 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件管理 - L4D2 管理面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='editor.js') }}"></script>
+    <script src="{{ url_for('static', filename='plugin_import.js') }}"></script>
+</head>
+<body>
+
+    {% include 'sidebar.html' %}
+
+    <div class="main-container">
+        <header class="page-header">
+            <div>
+                <h1>文件管理</h1>
+                <p>浏览、编辑和上传服务器文件，支持部署服务器</p>
+            </div>
+        </header>
+
+        <div id="deployPrompt" class="deploy-prompt" style="display: none;">
+            <h2>服务器尚未部署</h2>
+            <p>看起来这是您第一次使用或服务器文件不完整。请先点击下方按钮部署服务器文件。</p>
+        </div>
+
+        <div class="card file-manager">
+            <div class="card-header">
+                <h2>文件浏览器</h2>
+                <div class="item-actions">
+                    <button class="btn btn-secondary" id="deployBtn">
+                        <i data-feather="download-cloud" style="width:16px;"></i>部署/更新服务器
+                    </button>
+                    <button class="btn btn-secondary" id="mapManageBtn">
+                        <i data-feather="book-open" style="width:16px;"></i>上传/删除三方
+                    </button>
+                    <button class="btn btn-secondary" id="serverMsgBtn" style="display: none;">
+                        <i data-feather="edit-2" style="width:16px;"></i>服务器公告
+                    </button>
+                </div>
+            </div>
+
+            <div class="breadcrumb" id="breadcrumb">/</div>
+            
+            <div class="item-actions" style="margin-bottom: var(--space-4); display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-start;">
+                <div id="uploadContainer" style="position: relative;">
+                    <button class="btn btn-primary" id="uploadBtn"><i data-feather="upload" style="width:16px;"></i>上传</button>
+                    <div id="uploadOptions" class="upload-options">
+                        <button class="btn btn-secondary" id="uploadFileBtn"><i data-feather="file" style="width:16px;"></i>上传文件</button>
+                        <button class="btn btn-secondary" id="uploadFolderBtn"><i data-feather="folder" style="width:16px;"></i>上传文件夹</button>
+                    </div>
+                </div>
+                <input type="file" id="fileInput" style="display: none;" multiple>
+                <input type="file" id="folderInput" style="display: none;" webkitdirectory directory multiple>
+                <div id="newContainer" style="position: relative;">
+                    <button class="btn btn-secondary" id="newBtn"><i data-feather="plus-circle" style="width:16px;"></i>新建</button>
+                    <div id="newOptions" class="upload-options">
+                        <button class="btn btn-secondary" id="newFileBtn"><i data-feather="file-plus" style="width:16px;"></i>新建文件</button>
+                        <button class="btn btn-secondary" id="newFolderBtn"><i data-feather="folder-plus" style="width:16px;"></i>新建文件夹</button>
+                    </div>
+                </div>
+                 <button class="btn btn-secondary" onclick="loadFiles(currentPath, currentDisplayPath)">
+                    <i data-feather="refresh-cw" style="width:16px;"></i>刷新
+                </button>
+                <button class="btn btn-danger" id="batchDeleteBtn" style="display:none;" onclick="deleteSelectedFiles()">
+                    <i data-feather="trash-2" style="width:16px;"></i><span class="batch-label">删除所选</span>
+                </button>
+                <button class="btn btn-secondary" id="multiSelectBtn" style="margin-left: auto;" onclick="toggleMultiSelect()" title="开启后勾选多个文件或文件夹进行批量删除；多选模式下点击名称即勾选（不进入文件夹），跨目录请用面包屑导航">
+                    <i data-feather="check-circle" style="width:16px;"></i>多选
+                </button>
+            </div>
+
+            <div id="fileListContainer" style="overflow-x: auto;"></div>
+        </div>
+    </div>
+
+    <div id="logModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 style="color: white;">实时日志</h2>
+                <span class="close-btn" onclick="document.getElementById('logModal').style.display='none'">&times;</span>
+            </div>
+            <pre id="logOutput"></pre>
+        </div>
+    </div>
+    
+    {% include 'editor_modal.html' %}
+
+    <!-- 回到顶部：页面下滚较深时出现在右下角，点击平滑回到页面顶部 -->
+    <button id="backToTopBtn" class="back-to-top-btn" title="回到顶部" style="display:none;">
+        <i data-feather="arrow-up"></i>
+    </button>
+
+    <!-- 服务器公告编辑弹窗（host.txt / motd.txt，位于服务端 left4dead2 目录） -->
+    <div id="serverMsgModal" class="modal">
+        <div class="modal-content server-msg-modal">
+            <div class="modal-header">
+                <h2 style="color: var(--text-primary);">服务器公告</h2>
+                <span class="close-btn" onclick="closeServerMsgModal()">&times;</span>
+            </div>
+            <div class="server-msg-body">
+                <div class="server-msg-card host-card">
+                    <div class="server-msg-title">服务器信息 <span class="server-msg-file">host.txt</span></div>
+                    <textarea id="hostTxtArea" class="server-msg-textarea" spellcheck="false"></textarea>
+                </div>
+                <div class="server-msg-card motd-card">
+                    <div class="server-msg-title">服务器公告 <span class="server-msg-file">motd.txt</span></div>
+                    <textarea id="motdTxtArea" class="server-msg-textarea" spellcheck="false"></textarea>
+                </div>
+            </div>
+            <div class="server-msg-footer">
+                <button class="btn btn-secondary" onclick="closeServerMsgModal()">取消</button>
+                <button class="btn btn-primary" id="saveServerMsgBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 地图管理弹窗 -->
+    <div id="mapModal" class="modal">
+        <div class="modal-content map-modal">
+            <div class="modal-header">
+                <h2 style="color: var(--text-primary);">三方管理</h2>
+                <span class="close-btn" onclick="closeMapModal()">&times;</span>
+            </div>
+            <div class="map-tabs">
+                <button class="map-tab active" id="mapTabListBtn" onclick="switchMapTab('list')">地图管理</button>
+                <button class="map-tab" id="mapTabUploadBtn" onclick="switchMapTab('upload')">上传地图</button>
+            </div>
+
+            <!-- 地图列表 Tab -->
+            <div id="mapListPane" class="map-pane active">
+                <div class="map-toolbar">
+                    <div class="map-toolbar-actions">
+                        <button class="btn btn-secondary ebtn" onclick="loadMaps()"><i data-feather="refresh-cw" style="width:16px;"></i><span class="ebtn-label">刷新</span></button>
+                        <button class="btn btn-secondary ebtn" id="mapRenameDisplayBtn" onclick="openRenameDisplay()" disabled><i data-feather="tag" style="width:16px;"></i><span class="ebtn-label">命名更新</span></button>
+                        <button class="btn btn-secondary ebtn" id="mapApplyBtn" onclick="batchToggleApply()" disabled><i data-feather="link-2" style="width:16px;"></i><span class="ebtn-label">一键应用</span></button>
+                        <button class="btn btn-danger ebtn" id="mapDeleteBtn" onclick="deleteSelectedMaps()" disabled><i data-feather="trash-2" style="width:16px;"></i><span class="ebtn-label">删除</span></button>
+                    </div>
+                </div>
+                <div id="mapListContainer" class="map-list-container"></div>
+                <div class="map-pagination" id="mapPagination"></div>
+            </div>
+
+            <!-- 上传地图 Tab -->
+            <div id="mapUploadPane" class="map-pane">
+                <div id="mapDropzone" class="map-dropzone">
+                    <i data-feather="upload-cloud" class="map-dropzone-icon"></i>
+                    <div class="map-dropzone-title">点击上传地图文件</div>
+                    <div class="map-dropzone-hint">支持 .vpk, .zip, .rar, .7z 格式，入库后在"地图管理"中点「应用」接入服务器</div>
+                    <input type="file" id="mapFileInput" multiple accept=".vpk,.zip,.rar,.7z" style="display:none;">
+                </div>
+                <!-- 上传中：隐藏上传区；左圆环=总进度，单文件右侧为三行数据，多文件右侧为文件级进度列表 -->
+                <div id="mapUploadPanel" class="map-upload-panel" style="display:none;">
+                    <div class="map-upload-panel-title" id="mapUploadTitle">正在上传...</div>
+                    <div class="upload-body" id="mapUploadBody">
+                        <div class="upload-ring-col">
+                            <div class="upload-ring">
+                                <svg viewBox="0 0 120 120" aria-hidden="true">
+                                    <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+                                    <circle class="ring-fg" id="mapUploadRing" cx="60" cy="60" r="52"></circle>
+                                </svg>
+                                <div class="upload-ring-center" id="mapUploadPercent">0%</div>
+                            </div>
+                            <div class="upload-ring-caption" id="mapUploadCaption"></div>
+                        </div>
+                        <div class="upload-side" id="mapUploadSide"></div>
+                    </div>
+                    <div class="map-upload-cancel-row">
+                        <button class="btn btn-danger" id="mapUploadCancelBtn" onclick="cancelMapUpload()"><i data-feather="x-circle" style="width:16px;"></i>取消上传</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+<script>
+let currentPath = '';
+let currentDisplayPath = '服务器根目录';
+// 多选模式：开启后列表显示勾选列与"删除所选"按钮；切换目录保持模式、清空勾选
+let multiSelectMode = false;
+let currentFiles = [];  // 最近一次加载的目录内容，供切换多选模式时就地重渲染
+// 批量操作：当前列表中被勾选的文件/文件夹（虚拟路径），切换目录或刷新时清空
+let selectedFilePaths = new Set();
+
+// --- 核心API调用函数 ---
+async function apiCall(endpoint, body) {
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const resData = await response.json().catch(() => ({}));
+    if (!response.ok || resData.success === false) {
+        const err = new Error(resData.message || resData.error || `HTTP 错误: ${response.statusText}`);
+        err.status = response.status;   // 200+success:false = 业务拒绝，非 200 = 真异常，调用方可据此分级提示
+        throw err;
+    }
+    return resData;
+}
+
+// --- 文件列表加载与渲染 ---
+async function loadFiles(path, displayPath) {
+    currentPath = path;
+    if (displayPath) {
+        currentDisplayPath = displayPath;
+    }
+    selectedFilePaths.clear();
+    updateFileSelectionUI();
+    const container = document.getElementById('fileListContainer');
+    container.innerHTML = `<div style="text-align: center; padding: var(--space-6); color: var(--text-secondary);">正在加载...</div>`;
+    try {
+        const data = await apiCall('/api/files/list', { path });
+        renderBreadcrumb(path, currentDisplayPath);
+        currentFiles = data.files || [];
+        renderFileList(currentFiles, path);
+    } catch (error) {
+        container.innerHTML = `<div style="text-align: center; padding: var(--space-6); color: var(--status-danger);">加载失败: ${error.message}</div>`;
+    } finally {
+        feather.replace();
+    }
+}
+
+function renderBreadcrumb(path, displayPath) {
+    const breadcrumbEl = document.getElementById('breadcrumb');
+    let rootDisplay = displayPath.split('/')[0];
+    let basePath = '';
+    
+    if (displayPath.startsWith('可安装插件目录')) {
+        rootDisplay = '可安装插件目录';
+        basePath = 'plugin_dir';
+    } else if (displayPath.startsWith('三方上传目录')) {
+        rootDisplay = '三方上传目录';
+        basePath = 'addons_dir';
+    } else {
+        rootDisplay = '服务器根目录';
+        basePath = '';
+    }
+    
+    let html = `
+        <div class="breadcrumb-dropdown">
+            <span class="breadcrumb-root">${rootDisplay}</span>
+            <div class="breadcrumb-dropdown-content">
+                <a href="#" onclick="loadFiles('', '服务器根目录')">服务器根目录</a>
+                <a href="#" onclick="loadFiles('addons_dir', '三方上传目录')">三方上传目录</a>
+                <a href="#" onclick="loadFiles('plugin_dir', '可安装插件目录')">可安装插件目录</a>
+            </div>
+        </div>`;
+
+    let currentBuildPath = basePath;
+    let currentDisplayBuildPath = '';
+
+    if (path && path !== basePath && path.length > basePath.length) {
+        const parts = path.substring(basePath.length).split('/').filter(p => p);
+        for (let i = 0; i < parts.length; i++) {
+            // 虚拟根（addons_dir/plugin_dir）与服务器根（''）统一处理：已有前缀时补 '/'
+            currentBuildPath = currentBuildPath ? currentBuildPath + '/' + parts[i] : parts[i];
+            currentDisplayBuildPath += '/' + parts[i];
+            const nextPath = currentBuildPath;
+            const nextDispPath = rootDisplay + currentDisplayBuildPath;
+            html += ` / <a href="#" onclick="loadFiles('${nextPath.replace(/'/g, "\\'")}', '${nextDispPath.replace(/'/g, "\\'")}')">${parts[i]}</a>`;
+        }
+    }
+    breadcrumbEl.innerHTML = html;
+    feather.replace();
+}
+
+// 与脚本 unzip_file 支持的格式保持一致；压缩包在列表中显示专属图标
+const ARCHIVE_FILE_RE = /\.(zip|rar|7z|tar|tar\.gz|tgz|tar\.bz2|tbz2)$/i;
+
+function renderFileList(files, path) {
+    const container = document.getElementById('fileListContainer');
+    if (!files || files.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: var(--space-6); color: var(--text-secondary);">这个文件夹是空的</div>';
+        updateFileSelectionUI();
+        return;
+    }
+
+    files.sort((a, b) => {
+        if (a.type === b.type) return a.name.localeCompare(b.name, 'zh-CN', { numeric: true });
+        return a.type === 'directory' ? -1 : 1;
+    });
+
+    const headSelect = multiSelectMode
+        ? '<th style="width:36px;"><input type="checkbox" id="fileSelectAll" title="全选" onchange="toggleSelectAllFiles(this.checked)"></th>'
+        : '';
+    let tableHTML = `
+        <table class="data-table">
+        <thead>
+            <tr>
+            ${headSelect}
+            <th style="width: ${multiSelectMode ? '46%' : '50%'};">名称</th>
+            <th>大小</th>
+            <th>修改日期</th>
+            <th class="actions">操作</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+    files.forEach(file => {
+        const fullPath = (path ? path + '/' : '') + file.name;
+        const fullDisplayPath = (currentDisplayPath ? currentDisplayPath + '/' : '') + file.name;
+        const inPluginDir = path === 'plugin_dir' || path.startsWith('plugin_dir/');
+        const isArchive = file.type !== 'directory' && ARCHIVE_FILE_RE.test(file.name);
+        const isSmx = file.type !== 'directory' && /\.smx$/i.test(file.name);
+        // 可安装插件目录内的压缩包走"识别导入"（判定唯一标准：文件夹内含 left4dead2 层）；
+        // 裸 .smx 行不设识别按钮（.smx 需连同配套文件封装为插件包后再导入）；
+        // 文件夹上传完成时自动触发校验（见 uploadFiles），目录行不设手动按钮
+        const isRecognizable = inPluginDir && file.type !== 'directory' && isArchive;
+        const icon = file.type === 'directory' ? 'folder' : (isArchive ? 'archive' : (isSmx ? 'box' : 'file'));
+        const isEditable = /\.(cfg|txt|log|json|xml|ini|sh|vdf|rc|smx|sp)$/i.test(file.name);
+
+        const selectCell = multiSelectMode
+            ? `<td><input type="checkbox" class="file-select-check" data-path="${escAttr(fullPath)}" ${selectedFilePaths.has(fullPath) ? 'checked' : ''} onchange="toggleFileSelection('${escAttr(fullPath)}', this.checked)"></td>`
+            : '';
+        tableHTML += `
+            <tr data-path="${escAttr(fullPath)}" data-type="${file.type}" data-display="${escAttr(fullDisplayPath)}">
+                ${selectCell}
+                <td><a href="#" class="item-name"><i data-feather="${icon}" class="icon${isArchive ? ' icon-archive' : ''}"></i><span>${escHtml(file.name)}</span></a></td>
+                <td>${file.size}</td>
+                <td>${file.mtime}</td>
+                <td class="actions">
+                    ${isEditable ? `<button class="btn btn-secondary" onclick="openEditor('${escAttr(fullPath)}')" title="编辑"><i data-feather="edit-2"></i></button>` : ''}
+                    <button class="btn btn-secondary" onclick="renameItem('${escAttr(fullPath)}')" title="重命名"><i data-feather="edit"></i></button>
+                    ${isRecognizable ? `<button class="btn btn-primary" onclick="recognizePlugin('${escAttr(fullPath)}')" title="识别导入为可安装插件"><i data-feather="archive"></i></button>` : ''}
+                    ${(!isRecognizable && isArchive) ? `<button class="btn btn-secondary" onclick="unzipFile('${escAttr(fullPath)}')" title="解压"><i data-feather="archive"></i></button>` : ''}
+                    <button class="btn btn-danger" onclick="deletePath('${escAttr(fullPath)}', '${file.type}')" title="删除"><i data-feather="trash-2"></i></button>
+                </td>
+            </tr>
+        `;
+    });
+    tableHTML += `</tbody></table>`;
+    container.innerHTML = tableHTML;
+    updateFileSelectionUI();
+}
+
+// --- 文件操作 ---
+// 多选模式开关：开启后列表显示勾选列与"删除所选"按钮；退出时清空勾选并还原列表
+function toggleMultiSelect() {
+    multiSelectMode = !multiSelectMode;
+    if (!multiSelectMode) {
+        selectedFilePaths.clear();
+    }
+    updateFileSelectionUI();
+    if (currentFiles) {
+        renderFileList(currentFiles, currentPath);
+        if (window.feather) feather.replace();
+    }
+}
+
+// 勾选行、表头全选与工具栏"删除所选"按钮的联动（模式同地图管理弹窗）
+function toggleFileSelection(path, checked) {
+    if (checked) selectedFilePaths.add(path); else selectedFilePaths.delete(path);
+    updateFileSelectionUI();
+}
+
+function toggleSelectAllFiles(checked) {
+    document.querySelectorAll('#fileListContainer .file-select-check').forEach(cb => {
+        cb.checked = checked;
+        if (checked) selectedFilePaths.add(cb.dataset.path); else selectedFilePaths.delete(cb.dataset.path);
+    });
+    updateFileSelectionUI();
+}
+
+function updateFileSelectionUI() {
+    // 「多选」按钮高亮表示模式开启
+    const multiBtn = document.getElementById('multiSelectBtn');
+    if (multiBtn) {
+        multiBtn.classList.toggle('btn-primary', multiSelectMode);
+        multiBtn.classList.toggle('btn-secondary', !multiSelectMode);
+    }
+    // 「删除所选」仅在多选模式下显示；0 选中时置灰防误点
+    const btn = document.getElementById('batchDeleteBtn');
+    if (btn) {
+        const n = selectedFilePaths.size;
+        btn.style.display = multiSelectMode ? '' : 'none';
+        btn.disabled = n === 0;
+        const label = btn.querySelector('.batch-label');
+        if (label) label.textContent = `删除所选 (${n})`;
+    }
+    // 右侧按钮组整体靠右：删除所选可见时由它承担右推（紧贴多选左侧），否则由多选自己右推
+    if (multiBtn && btn) {
+        if (multiSelectMode) {
+            btn.style.marginLeft = 'auto';
+            multiBtn.style.marginLeft = '0';
+        } else {
+            multiBtn.style.marginLeft = 'auto';
+        }
+    }
+    const all = document.getElementById('fileSelectAll');
+    if (all) {
+        const boxes = document.querySelectorAll('#fileListContainer .file-select-check');
+        all.checked = boxes.length > 0 && Array.from(boxes).every(cb => cb.checked);
+    }
+}
+
+async function deleteSelectedFiles() {
+    const paths = Array.from(selectedFilePaths);
+    if (paths.length === 0) return;
+    const names = paths.map(p => p.split('/').pop());
+    const sample = names.slice(0, 5).map(escHtml).join('、') + (names.length > 5 ? ` 等共 ${names.length} 项` : '');
+    const result = await Swal.fire({
+        title: `确定要删除所选 ${paths.length} 项吗?`,
+        html: `将永久删除: <b>${sample}</b><br><small>文件夹会连同其中的全部内容一起删除，此操作不可恢复</small>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: 'var(--status-danger)',
+        confirmButtonText: '全部删除',
+        cancelButtonText: '取消'
+    });
+    if (!result.isConfirmed) return;
+
+    let done = 0;
+    const failed = [];
+    Swal.fire({
+        title: '正在批量删除...',
+        html: `已完成 0 / ${paths.length}`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+    for (const p of paths) {
+        try {
+            await apiCall('/api/files/delete', { path: p });
+        } catch (error) {
+            failed.push(`${p.split('/').pop()}: ${error.message}`);
+        }
+        done++;
+        Swal.update({ html: `已完成 ${done} / ${paths.length}` });
+    }
+
+    selectedFilePaths.clear();
+    if (failed.length === 0) {
+        Swal.fire('删除完成', `成功删除 ${paths.length} 项。`, 'success');
+    } else {
+        Swal.fire({
+            icon: 'warning',
+            title: '部分删除失败',
+            html: `成功 ${paths.length - failed.length} 项, 失败 ${failed.length} 项。<br>
+                   <pre style="text-align: left; max-height: 150px; overflow-y: auto;">${escHtml(failed.join('\n'))}</pre>`
+        });
+    }
+    loadFiles(currentPath, currentDisplayPath);
+}
+
+async function deletePath(path, type) {
+    const pathType = type === 'directory' ? '文件夹' : '文件';
+    const displayPath = path.replace(/^(plugin_dir\/|addons_dir\/)/, '');
+
+    const result = await Swal.fire({
+        title: `确定要删除${pathType}吗?`,
+        text: `你将要永久删除: ${displayPath}`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: 'var(--status-danger)',
+        confirmButtonText: '是的, 删除!',
+        cancelButtonText: '取消'
+    });
+    if (!result.isConfirmed) return;
+    try {
+        await apiCall('/api/files/delete', { path });
+        Swal.fire('已删除!', `${pathType} '${displayPath}' 已成功删除。`, 'success');
+        loadFiles(currentPath, currentDisplayPath);
+    } catch (error) {
+        Swal.fire('失败!', `删除失败: ${error.message}`, 'error');
+    }
+}
+
+async function createFolder() {
+    const { value: folderName } = await Swal.fire({
+        title: '输入新文件夹的名称',
+        input: 'text',
+        showCancelButton: true,
+        confirmButtonText: '创建',
+        cancelButtonText: '取消'
+    });
+    if (folderName) {
+        const fullPath = (currentPath ? currentPath + '/' : '') + folderName;
+        try {
+            await apiCall('/api/files/create_folder', { path: fullPath });
+            Swal.fire('已创建!', `文件夹 '${folderName}' 已成功创建。`, 'success');
+            loadFiles(currentPath, currentDisplayPath);
+        } catch (error) {
+            Swal.fire('失败!', `创建文件夹失败: ${error.message}`, 'error');
+        }
+    }
+}
+
+async function createFile() {
+    const { value: fileName } = await Swal.fire({
+        title: '输入新文件的名称（含扩展名）',
+        input: 'text',
+        showCancelButton: true,
+        confirmButtonText: '创建',
+        cancelButtonText: '取消',
+        inputValidator: (v) => {
+            const t = (v || '').trim();
+            if (!t) return '名称不能为空';
+            if (/[\\/:*?"<>|]/.test(t)) return '包含非法字符';
+            if (t.startsWith('.') || t.startsWith('-')) return '不能以 . 或 - 开头';
+            return null;
+        }
+    });
+    if (fileName) {
+        const fullPath = (currentPath ? currentPath + '/' : '') + fileName.trim();
+        try {
+            await apiCall('/api/files/create_file', { path: fullPath });
+            Swal.fire('已创建!', `文件 '${fileName.trim()}' 已成功创建，点击文件名即可编辑内容。`, 'success');
+            loadFiles(currentPath, currentDisplayPath);
+        } catch (error) {
+            Swal.fire('失败!', `创建文件失败: ${error.message}`, 'error');
+        }
+    }
+}
+
+async function renameItem(path) {
+    const oldName = path.split('/').pop();
+    const { value: newName } = await Swal.fire({
+        title: '重命名',
+        input: 'text',
+        inputValue: oldName,
+        showCancelButton: true,
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        inputValidator: (v) => {
+            const t = (v || '').trim();
+            if (!t) return '名称不能为空';
+            if (/[\\/:*?"<>|]/.test(t)) return '包含非法字符';
+            if (t.startsWith('.') || t.startsWith('-')) return '不能以 . 或 - 开头';
+            return null;
+        }
+    });
+    const trimmed = (newName || '').trim();
+    if (!trimmed || trimmed === oldName) return;
+    try {
+        const res = await apiCall('/api/files/rename', { path, new_name: trimmed });
+        Swal.fire('成功!', res.message || '重命名成功。', 'success');
+        loadFiles(currentPath, currentDisplayPath);
+    } catch (error) {
+        Swal.fire('失败!', `重命名失败: ${error.message}`, 'error');
+    }
+}
+
+// --- 上传同名冲突预检：整批一次询问（覆盖/自动改名/跳过同名），不逐文件打断 ---
+// 服务端两条上传通道默认拒绝覆盖，此处选择"覆盖"后请求才带 overwrite 标志放行
+async function resolveUploadConflicts(files) {
+    const paths = files.map(f => f.webkitRelativePath || f.name).filter(Boolean);
+    if (paths.length === 0) return null;
+    let conflicts = [];
+    try {
+        const resp = await fetch('/api/files/upload/conflicts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: currentPath, paths })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && data.success) conflicts = data.conflicts || [];
+        else return null;   // 预检异常不阻塞上传（服务端仍有默认拒绝覆盖兜底）
+    } catch (err) {
+        return null;
+    }
+    if (conflicts.length === 0) return null;
+    const listHtml = conflicts.slice(0, 8).map(c => escHtml(c.path)).join('<br>')
+        + (conflicts.length > 8 ? `<br>…等共 ${conflicts.length} 个` : '');
+    const choice = await Swal.fire({
+        title: `发现 ${conflicts.length} 个同名文件`,
+        html: `<div style="text-align:left; font-size:13px; margin-bottom:10px;">${listHtml}</div>
+               覆盖会替换目标位置的同名文件；自动改名按"xxx (1).ext"命名。`,
+        icon: 'warning',
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText: '覆盖',
+        denyButtonText: '自动改名',
+        cancelButtonText: '跳过同名',
+        allowOutsideClick: false,
+        allowEscapeKey: false
+    });
+    if (choice.isConfirmed) return { mode: 'overwrite' };
+    if (choice.isDenied) return { mode: 'rename', renames: new Map(conflicts.map(c => [c.path, c.suggestion])) };
+    return { mode: 'skip', skip: new Set(conflicts.map(c => c.path)) };
+}
+
+async function uploadFiles(fileList) {
+    // 入参是 FileList（无 reduce 等数组方法），统一转数组后使用
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    let uploadAborted = false;
+    let folderCount = 0;
+    let fileCount = 0;
+    let rootFolders = null;
+    // 同名冲突整批预检，得到本批的上传名单与策略
+    const conflictPlan = await resolveUploadConflicts(files);
+    const skipSet = conflictPlan && conflictPlan.mode === 'skip' ? conflictPlan.skip : new Set();
+    const renameMap = conflictPlan && conflictPlan.mode === 'rename' ? conflictPlan.renames : new Map();
+    const overwriteFlag = !!(conflictPlan && conflictPlan.mode === 'overwrite');
+    const uploadList = files.filter(f => !skipSet.has(f.webkitRelativePath || f.name));
+    if (uploadList.length === 0) {
+        mapToast('同名文件已按选择全部跳过');
+        return;
+    }
+    const isFolderUpload = uploadList.length > 0 && uploadList[0].webkitRelativePath !== "";
+    if (isFolderUpload) {
+        rootFolders = new Set(uploadList.map(f => f.webkitRelativePath.split('/')[0]));
+        folderCount = rootFolders.size;
+    } else {
+        fileCount = uploadList.length;
+    }
+    const speedMeter = createUploadSpeedMeter();
+    const totalBytes = uploadList.reduce((s, f) => s + f.size, 0);
+    let uploadedBytes = 0;
+    let failures = [];   // {name, message}：逐文件上报，互不拖累
+
+    // 进度环：聚合已完成文件的字节 + 当前文件的上传进度
+    const updateProgress = (loaded) => {
+        const percentComplete = totalBytes ? Math.min(100, (loaded / totalBytes) * 100) : 0;
+        const container = Swal.getHtmlContainer();
+        const progressBar = container?.querySelector('#upload-progress');
+        if (progressBar) progressBar.style.width = percentComplete + '%';
+        const ringEl = container?.querySelector('#upload-ring');
+        if (ringEl) ringEl.style.strokeDashoffset = (326.7256 * (1 - percentComplete / 100)).toFixed(1);
+        const percentEl = container?.querySelector('#upload-percent');
+        if (percentEl) percentEl.textContent = percentComplete.toFixed(1) + '%';
+        const bytesEl = container?.querySelector('#upload-bytes');
+        if (bytesEl) bytesEl.textContent = fmtBytes(loaded);
+        const totalEl = container?.querySelector('#upload-total');
+        if (totalEl) totalEl.textContent = fmtBytes(totalBytes);
+        const speedEl = container?.querySelector('#upload-speed');
+        if (speedEl) {
+            const speed = speedMeter(loaded);
+            speedEl.textContent = speed > 0 ? fmtBytes(speed) + '/s' : '--';
+        }
+    };
+
+    let title = isFolderUpload ? `正在上传 ${folderCount} 个文件夹...` : `正在上传 ${fileCount} 个文件...`;
+    Swal.fire({
+        title: title,
+        html: `
+            <div class="upload-ring-row">
+                <div class="upload-ring">
+                    <svg viewBox="0 0 120 120" aria-hidden="true">
+                        <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+                        <circle class="ring-fg" id="upload-ring" cx="60" cy="60" r="52"></circle>
+                    </svg>
+                    <div class="upload-ring-center" id="upload-percent">0%</div>
+                </div>
+                <div class="upload-ring-stats">
+                    <div class="upload-stat"><span class="upload-stat-label">已上传</span><span class="upload-stat-value" id="upload-bytes">--</span></div>
+                    <div class="upload-stat"><span class="upload-stat-label">总大小</span><span class="upload-stat-value" id="upload-total">--</span></div>
+                    <div class="upload-stat"><span class="upload-stat-label">上传速度</span><span class="upload-stat-value" id="upload-speed">--</span></div>
+                </div>
+            </div>
+        `,
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText: '取消上传'
+    }).then((result) => {
+        if (result.dismiss === Swal.DismissReason.cancel) {
+            uploadAborted = true;
+            if (activeUploadAbort) activeUploadAbort();
+        }
+    });
+
+    // 逐文件走混合通道（小文件直传 + 自动重试 / 大文件分片续传），任一文件失败不中断后续
+    for (const file of uploadList) {
+        if (uploadAborted) break;
+        let relativeName = file.webkitRelativePath || file.name;
+        if (renameMap.has(relativeName)) relativeName = renameMap.get(relativeName);
+        try {
+            await uploadFileSmart(file, {
+                purpose: 'file',
+                path: currentPath,
+                relativePath: relativeName,
+                overwrite: overwriteFlag,
+                isCancelled: () => uploadAborted,
+                onProgress: (loaded) => updateProgress(uploadedBytes + loaded)
+            });
+            uploadedBytes += file.size;
+        } catch (err) {
+            if (err && err.cancelled) { uploadAborted = true; break; }
+            failures.push({ name: relativeName, message: (err && err.message) || '上传失败' });
+        }
+    }
+
+    Swal.close();
+    if (uploadAborted) {
+        // 用户取消：已传完的文件保留在服务器，刷新列表回到正常状态
+        mapToast('已取消上传');
+        loadFiles(currentPath, currentDisplayPath);
+        return;
+    }
+    if (failures.length === 0) {
+        // 文件夹上传到可安装插件目录：上传完成即自动校验插件结构并询问是否导入，
+        // 无需再手动点击识别按钮
+        const inPluginDirUp = currentPath === 'plugin_dir' || currentPath.startsWith('plugin_dir/');
+        const autoCheck = isFolderUpload && rootFolders && rootFolders.size === 1 && inPluginDirUp;
+        if (autoCheck) {
+            const rootName = [...rootFolders][0];
+            loadFiles(currentPath, currentDisplayPath);
+            recognizePlugin(currentPath + '/' + rootName, true);
+        } else {
+            const message = isFolderUpload ? `成功上传了 ${folderCount} 个文件夹。` : `成功上传了 ${fileCount} 个文件。`;
+            Swal.fire('成功!', message, 'success');
+            loadFiles(currentPath, currentDisplayPath);
+        }
+    } else {
+        const rows = failures.map(f =>
+            `<div class="map-upload-result err">✗ <b>${escHtml(f.name)}</b><br>${escHtml(f.message)}</div>`).join('');
+        Swal.fire({
+            title: failures.length === files.length ? '上传失败' : '部分文件上传失败',
+            html: `<div class="map-upload-results">${rows}</div>`,
+            icon: 'error',
+            confirmButtonText: '好的'
+        });
+        loadFiles(currentPath, currentDisplayPath);
+    }
+}
+
+async function unzipFile(path) {
+    Swal.fire({
+        title: '正在解压...',
+        text: `正在处理文件: ${path}`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+    try {
+        await apiCall('/api/files/unzip', { path });
+        Swal.fire('成功!', '文件已成功解压。', 'success');
+        loadFiles(currentPath, currentDisplayPath);
+    } catch(error) {
+        Swal.fire('失败!', `解压失败: ${error.message}`, 'error');
+    }
+}
+
+// --- 插件识别导入：可安装插件目录内的压缩包/文件夹 → 扫描确认 → 拆分入库（源文件随之清理） ---
+// isDir：文件夹上传后的自动校验流。用户取消导入时移除刚上传的文件夹，保持插件库干净
+async function recognizePlugin(path, isDir) {
+    Swal.fire({
+        title: isDir ? '正在校验文件夹结构...' : '正在识别插件包...',
+        text: isDir ? '将按插件结构规则检查上传的文件夹' : '大压缩包可能需要一些时间',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+    let data;
+    try {
+        data = await apiCall('/api/plugins/recognize', { path });
+    } catch (error) {
+        // 识别失败：关闭提示后刷新列表，避免显示已删除的残留行。
+        // HTTP 200 + success:false = 业务拒绝（文件夹结构不合格已自动移除/压缩包损坏等），
+        // 用 warning 说明原因；其余（网络/服务器异常）才是真正的 error
+        if (error.status === 200) {
+            Swal.fire({
+                title: isDir ? '文件夹结构不符合插件规范' : '无法识别该压缩包',
+                html: escHtml(error.message),
+                icon: 'warning',
+                confirmButtonText: '知道了'
+            }).then(() => loadFiles(currentPath, currentDisplayPath));
+        } else {
+            Swal.fire('失败!', `识别失败: ${error.message}`, 'error')
+                .then(() => loadFiles(currentPath, currentDisplayPath));
+        }
+        return;
+    }
+    PluginImportDialog.showConfirm({
+        importId: data.import_id,
+        candidates: data.candidates,
+        junkCount: data.junk_count,
+        onImported: () => loadFiles(currentPath, currentDisplayPath),
+        onCancelled: isDir ? () => removeUploadedFolder(path) : null
+    });
+}
+
+// 取消导入：移除刚上传的文件夹（其内容此时仍完整保留在库内）。
+// 删除是实质动作，用必须确认的弹窗告知，不用一闪而过的 toast
+async function removeUploadedFolder(path) {
+    try {
+        await apiCall('/api/files/delete', { path });
+        Swal.fire({
+            title: '已取消导入',
+            text: '上传的文件夹已从插件库移除。',
+            icon: 'info',
+            confirmButtonText: '好的'
+        });
+    } catch (error) {
+        Swal.fire('失败!', `已取消导入，但移除文件夹失败: ${error.message}`, 'error');
+    }
+    loadFiles(currentPath, currentDisplayPath);
+}
+
+// --- 文件浏览器：单击文件名进入文件夹（行内按钮各自处理，不参与） ---
+// 多选模式下锁定本页面：点名称（文件或文件夹）不再进入目录，改为切换该项勾选，
+// 防止误触进入子文件夹导致已勾选项被清空；跨目录导航走面包屑（明确动作、主动清空勾选）
+document.getElementById('fileListContainer').addEventListener('click', (e) => {
+    const link = e.target.closest('a.item-name');
+    if (!link) return;
+    e.preventDefault();
+    const row = link.closest('tr');
+    if (!row) return;
+    if (multiSelectMode) {
+        const cb = row.querySelector('.file-select-check');
+        if (cb) {
+            cb.checked = !cb.checked;
+            toggleFileSelection(cb.dataset.path, cb.checked);
+        }
+        return;
+    }
+    if (row.dataset.type === 'directory') {
+        loadFiles(row.dataset.path, row.dataset.display);
+    }
+});
+
+// --- 服务器文件编辑：通过共享编辑器组件（EditorModal），读写 /api/files 端点 ---
+async function openEditor(path) {
+    EditorModal.open({
+        title: `编辑: ${path}`,
+        load: async () => {
+            const response = await fetch('/api/files/get_content', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path })
+            });
+            const textData = await response.text();
+            if (!response.ok) throw new Error(textData || `HTTP ${response.status}`);
+            return textData;
+        },
+        save: async (_file, content) => {
+            await apiCall('/api/files/save_content', { path, content });
+        }
+    });
+}
+
+// --- 服务器公告编辑（host.txt / motd.txt，位于服务端 left4dead2 目录） ---
+const HOST_TXT_PATH = 'left4dead2/host.txt';
+const MOTD_TXT_PATH = 'left4dead2/motd.txt';
+
+function closeServerMsgModal() {
+    document.getElementById('serverMsgModal').style.display = 'none';
+}
+
+async function fetchFileText(path) {
+    const response = await fetch('/api/files/get_content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(text || `HTTP ${response.status}`);
+    return text;
+}
+
+async function loadServerMsgFile(area, path, label) {
+    try {
+        area.value = await fetchFileText(path);
+        area.placeholder = '';
+    } catch (error) {
+        // 文件被误删（如在文件管理中删除）：置空兜底，后端保存时会自动重建文件
+        area.value = '';
+        area.placeholder = /文件不存在/.test(error.message)
+            ? `${label} 不存在，直接点击保存即可自动创建`
+            : `加载失败: ${error.message}`;
+    }
+}
+
+async function openServerMsgModal() {
+    const modal = document.getElementById('serverMsgModal');
+    const hostArea = document.getElementById('hostTxtArea');
+    const motdArea = document.getElementById('motdTxtArea');
+    hostArea.value = '';
+    motdArea.value = '';
+    hostArea.placeholder = '正在加载...';
+    motdArea.placeholder = '正在加载...';
+    modal.style.display = 'flex';
+    await Promise.all([
+        loadServerMsgFile(hostArea, HOST_TXT_PATH, 'host.txt'),
+        loadServerMsgFile(motdArea, MOTD_TXT_PATH, 'motd.txt')
+    ]);
+}
+
+async function saveServerMsg() {
+    const entries = [
+        ['hostTxtArea', HOST_TXT_PATH, 'host.txt'],
+        ['motdTxtArea', MOTD_TXT_PATH, 'motd.txt']
+    ];
+    const saveBtn = document.getElementById('saveServerMsgBtn');
+    saveBtn.disabled = true;
+    try {
+        for (const [areaId, path, label] of entries) {
+            const content = document.getElementById(areaId).value;
+            try {
+                await apiCall('/api/files/save_content', { path, content });
+            } catch (error) {
+                Swal.fire('失败!', `保存 ${label} 失败: ${error.message}`, 'error');
+                return;
+            }
+        }
+        mapToast('服务器公告已保存');
+        closeServerMsgModal();
+    } finally {
+        saveBtn.disabled = false;
+    }
+}
+
+function handleDeployment(action) {
+    const logModal = document.getElementById('logModal');
+    const logOutput = document.getElementById('logOutput');
+    logModal.style.display = 'flex';
+    logOutput.textContent = '正在连接到服务器以获取日志...\n';
+    fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+    }).then(response => {
+        const reader = response.body.getReader();
+        function readStream() {
+            reader.read().then(({ done, value }) => {
+                if (done) {
+                    logOutput.textContent += '\n--- 日志流结束 ---';
+                    checkServerStatus();
+                    loadFiles(currentPath, currentDisplayPath);
+                    return;
+                }
+                const chunk = new TextDecoder().decode(value);
+                const lines = chunk.split('\n');
+                lines.forEach(line => {
+                    if (line.startsWith('data: ')) {
+                        logOutput.textContent += line.substring(6) + '\n';
+                        logOutput.scrollTop = logOutput.scrollHeight;
+                    }
+                });
+                readStream();
+            });
+        }
+        readStream();
+    }).catch(err => {
+        logOutput.textContent += `\n--- 发生错误: ${err.message} ---`;
+    });
+}
+
+// --- 地图管理弹窗 ---
+let allMaps = [];
+let mapCurrentPage = 1;
+let mapPageSize = 10;
+let selectedMapNames = new Set();
+// 地图上传取消控制：取消标志 + 当前上传的取消钩子（由混合上传通道注册）
+let mapUploadCancelled = false;
+
+function cancelMapUpload() {
+    mapUploadCancelled = true;
+    if (activeUploadAbort) activeUploadAbort();
+}
+
+function escHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function escAttr(text) {
+    return escHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function fmtBytes(bytes) {
+    if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + 'GB';
+    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + 'MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + 'KB';
+    return bytes + 'B';
+}
+
+// 上传速度计：按 progress 事件增量求瞬时速度，再做指数平滑避免数字跳动
+// 用法: const meter = createUploadSpeedMeter(); 每次 onprogress 调 meter(e.loaded) 得 B/s
+function createUploadSpeedMeter() {
+    let lastLoaded = 0, lastTime = 0, smoothed = 0;
+    return function (loaded) {
+        const now = Date.now();
+        if (!lastTime) {
+            lastLoaded = loaded;
+            lastTime = now;
+            return 0;
+        }
+        const dt = (now - lastTime) / 1000;
+        if (dt <= 0) return smoothed;
+        const instant = Math.max(0, (loaded - lastLoaded) / dt);
+        lastLoaded = loaded;
+        lastTime = now;
+        smoothed = smoothed ? smoothed * 0.7 + instant * 0.3 : instant;
+        return smoothed;
+    };
+}
+
+// --- 混合上传通道（地图上传与文件浏览器共用） ---
+// 小文件（≤50MB）单请求直传，失败自动重试；大文件切 8MB 分片上传：
+// 单片失败只重传该片，中断后重新上传同一文件会按文件特征续传已收分片。
+const UPLOAD_CHUNK_THRESHOLD = 50 * 1024 * 1024;
+const UPLOAD_DIRECT_RETRIES = 2;   // 直传失败自动重试次数（首次 + 重试）
+const UPLOAD_CHUNK_RETRIES = 4;    // 单片最大尝试次数
+let activeUploadAbort = null;      // 当前上传的取消钩子（弹窗"取消上传"调用）
+
+function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// 把服务器的状态码/响应体统一转成人话提示
+function friendlyUploadError(status, data) {
+    if (data && (data.error || data.message)) return data.error || data.message;
+    if (status === 413) return '上传内容超过 2GB 限制，请压缩后再试';
+    if (status === 507) return '服务器磁盘空间不足，请清理服务器存储';
+    if (status === 500) return '服务器内部错误';
+    if (status === 404) return '上传会话已过期，请重新上传';
+    return `HTTP ${status}`;
+}
+
+async function fetchJsonResp(url, options) {
+    try {
+        const resp = await fetch(url, options);
+        const data = await resp.json().catch(() => ({}));
+        return { status: resp.status, data };
+    } catch (err) {
+        throw { message: '网络连接中断' };
+    }
+}
+
+// 直传单文件（XMLHttpRequest 以获得逐字节进度）；resolve 服务器 JSON，reject {message|cancelled}
+function uploadFileDirect(file, { url, fields, onProgress, isCancelled, relativePath }) {
+    return new Promise((resolve, reject) => {
+        const attempt = (remaining) => {
+            if (isCancelled && isCancelled()) return reject({ cancelled: true });
+            const xhr = new XMLHttpRequest();
+            const formData = new FormData();
+            // multipart 文件名带相对路径（与分片通道的 relative_path 同义）：
+            // 服务端按 '/' 拆分落位，文件夹上传的层级全靠它——曾漏传导致
+            // 小文件（<50MB 直传通道）全部平铺、文件夹识别失败
+            formData.append('file', file, relativePath || file.name);
+            for (const [k, v] of Object.entries(fields || {})) formData.append(k, v);
+            xhr.open('POST', url, true);
+            activeUploadAbort = () => xhr.abort();
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+            };
+            xhr.onload = () => {
+                activeUploadAbort = null;
+                let data = {};
+                try { data = JSON.parse(xhr.responseText); } catch (err) {}
+                if (xhr.status === 200 && data.success) return resolve(data);
+                // 5xx 属服务器临时性故障可重试；4xx/507 是明确拒绝，重试无意义
+                if (xhr.status >= 500 && xhr.status !== 507 && remaining > 0) {
+                    return sleepMs(800).then(() => attempt(remaining - 1));
+                }
+                reject({ message: friendlyUploadError(xhr.status, data) });
+            };
+            xhr.onerror = () => {
+                activeUploadAbort = null;
+                if (remaining > 0) return sleepMs(800).then(() => attempt(remaining - 1));
+                reject({ message: '网络连接中断，多次重试后仍失败' });
+            };
+            xhr.onabort = () => {
+                activeUploadAbort = null;
+                reject({ cancelled: true });
+            };
+            xhr.send(formData);
+        };
+        attempt(UPLOAD_DIRECT_RETRIES);
+    });
+}
+
+// 分片上传单文件；resolve 与对应直传接口同构的 JSON
+async function uploadFileChunked(file, opts) {
+    const initResp = await fetchJsonResp('/api/upload/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            purpose: opts.purpose,
+            filename: file.name,
+            size: file.size,
+            last_modified: file.lastModified || 0,
+            path: opts.path || '',
+            relative_path: opts.relativePath || '',
+            overwrite: !!opts.overwrite
+        })
+    });
+    if (initResp.status !== 200 || !initResp.data.success) {
+        throw { message: friendlyUploadError(initResp.status, initResp.data) };
+    }
+    const { upload_id, chunk_size, total_chunks, received } = initResp.data;
+    const receivedSet = new Set(received);
+    let uploadedBytes = Math.min(receivedSet.size * chunk_size, file.size);
+    if (opts.onProgress) opts.onProgress(uploadedBytes, file.size);
+
+    for (let idx = 0; idx < total_chunks; idx++) {
+        if (opts.isCancelled && opts.isCancelled()) throw { cancelled: true };
+        if (receivedSet.has(idx)) continue;   // 续传：服务器已有的分片直接跳过
+        const start = idx * chunk_size;
+        const blob = file.slice(start, Math.min(start + chunk_size, file.size));
+        let done = false, lastError = '';
+        for (let attempt = 1; attempt <= UPLOAD_CHUNK_RETRIES && !done; attempt++) {
+            if (opts.isCancelled && opts.isCancelled()) throw { cancelled: true };
+            const controller = new AbortController();
+            activeUploadAbort = () => controller.abort();
+            try {
+                const resp = await fetch(`/api/upload/chunk?upload_id=${upload_id}&index=${idx}`,
+                    { method: 'POST', body: blob, signal: controller.signal });
+                activeUploadAbort = null;
+                if (resp.ok) {
+                    done = true;
+                    break;
+                }
+                const data = await resp.json().catch(() => ({}));
+                lastError = friendlyUploadError(resp.status, data);
+                // 仅服务器临时性故障重试；明确拒绝（磁盘不足/超限等）立即停止
+                const retryable = resp.status === 500 || resp.status === 502 || resp.status === 503 || resp.status === 504;
+                if (!retryable) break;
+            } catch (err) {
+                activeUploadAbort = null;
+                if (opts.isCancelled && opts.isCancelled()) throw { cancelled: true };
+                lastError = '网络连接中断';
+            }
+            if (attempt < UPLOAD_CHUNK_RETRIES) await sleepMs(600 * attempt);
+        }
+        if (!done) {
+            throw { message: `分片 ${idx + 1}/${total_chunks} 上传失败：${lastError}（已完成 ${receivedSet.size}/${total_chunks} 片，重新上传同一文件可续传）` };
+        }
+        receivedSet.add(idx);
+        uploadedBytes += blob.size;
+        if (opts.onProgress) opts.onProgress(Math.min(uploadedBytes, file.size), file.size);
+    }
+
+    const doneResp = await fetchJsonResp('/api/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_id })
+    });
+    if (doneResp.status !== 200 || !doneResp.data.success) {
+        throw { message: friendlyUploadError(doneResp.status, doneResp.data) };
+    }
+    return doneResp.data;
+}
+
+// 统一入口：按文件体积自动选择直传或分片
+async function uploadFileSmart(file, opts) {
+    if (file.size > UPLOAD_CHUNK_THRESHOLD) return uploadFileChunked(file, opts);
+    const url = opts.purpose === 'map' ? '/api/maps/upload' : '/api/files/upload';
+    const fields = opts.purpose === 'map' ? {} : { path: opts.path || '' };
+    if (opts.overwrite) fields.overwrite = '1';   // 冲突弹窗选了"覆盖"才携带，服务端默认拒绝覆盖
+    return uploadFileDirect(file, {
+        url, fields, onProgress: opts.onProgress, isCancelled: opts.isCancelled,
+        relativePath: opts.relativePath
+    });
+}
+
+function openMapManager() {
+    document.getElementById('mapModal').style.display = 'flex';
+    switchMapTab('list');
+}
+
+function closeMapModal() {
+    document.getElementById('mapModal').style.display = 'none';
+}
+
+function switchMapTab(tab) {
+    document.getElementById('mapTabListBtn').classList.toggle('active', tab === 'list');
+    document.getElementById('mapTabUploadBtn').classList.toggle('active', tab === 'upload');
+    document.getElementById('mapListPane').classList.toggle('active', tab === 'list');
+    document.getElementById('mapUploadPane').classList.toggle('active', tab === 'upload');
+    if (tab === 'list') loadMaps();
+}
+
+async function loadMaps() {
+    const container = document.getElementById('mapListContainer');
+    container.innerHTML = '<div class="map-empty">正在加载...</div>';
+    try {
+        const data = await apiCall('/api/maps/list', {});
+        allMaps = data.maps || [];
+        // 数据刷新后丢弃已不存在的选中项
+        selectedMapNames = new Set([...selectedMapNames].filter(n => allMaps.some(m => m.name === n)));
+        renderMapList();
+        if (data.cleaned_dangling > 0) {
+            mapToast(`已自动清理 ${data.cleaned_dangling} 个失效的应用链接`);
+        }
+    } catch (error) {
+        container.innerHTML = `<div class="map-empty">加载失败: ${escHtml(error.message)}</div>`;
+    }
+    feather.replace();
+}
+
+function currentPageMaps() {
+    return allMaps.slice((mapCurrentPage - 1) * mapPageSize, mapCurrentPage * mapPageSize);
+}
+
+function renderMapList() {
+    const container = document.getElementById('mapListContainer');
+    const pagination = document.getElementById('mapPagination');
+    const maps = allMaps;
+    const totalPages = Math.max(1, Math.ceil(maps.length / mapPageSize));
+    if (mapCurrentPage > totalPages) mapCurrentPage = totalPages;
+    const pageMaps = currentPageMaps();
+
+    if (maps.length === 0) {
+        container.innerHTML = '<div class="map-empty">还没有入库的地图，去"上传地图"添加一个吧（上传后点"应用"才会接入服务器）</div>';
+        pagination.innerHTML = '';
+        updateMapSelectionUI();
+        feather.replace();
+        return;
+    }
+
+    const allChecked = pageMaps.length > 0 && pageMaps.every(m => selectedMapNames.has(m.name));
+    let html = `<table class="data-table map-table"><thead><tr>
+        <th style="width:36px;"><input type="checkbox" id="mapSelectAll" ${allChecked ? 'checked' : ''} onchange="toggleSelectAllMaps(this.checked)"></th>
+        <th>地图名称</th>
+        <th style="width:96px;">大小</th>
+        <th style="width:150px;">上传时间</th>
+        <th style="width:78px;">状态</th>
+        <th class="actions" style="width:150px;">操作</th>
+    </tr></thead><tbody>`;
+    pageMaps.forEach(m => {
+        const checked = selectedMapNames.has(m.name) ? 'checked' : '';
+        const safeName = escAttr(m.name);
+        const stateBadge = m.applied
+            ? '<span class="map-state-badge applied">已应用</span>'
+            : '<span class="map-state-badge off">未应用</span>';
+        const applyBtn = m.applied
+            ? `<button class="btn btn-secondary" onclick="unapplyMap('${safeName}')" title="取消应用"><i data-feather="slash"></i></button>`
+            : `<button class="btn btn-secondary" onclick="applyMap('${safeName}')" title="应用"><i data-feather="link-2"></i></button>`;
+        html += `<tr>
+            <td><input type="checkbox" ${checked} onchange="toggleMapSelection('${safeName}', this.checked)"></td>
+            <td><span class="map-item-name" title="${safeName}"><i data-feather="file-text" class="icon"></i><span>${escHtml(m.name)}</span></span></td>
+            <td><span class="map-size-badge">${fmtBytes(m.size)}</span></td>
+            <td class="map-mtime">${escHtml(m.mtime || '')}</td>
+            <td>${stateBadge}</td>
+            <td class="actions">
+                ${applyBtn}
+                <button class="btn btn-secondary" onclick="renameMap('${safeName}')" title="重命名"><i data-feather="edit"></i></button>
+                <button class="btn btn-danger" onclick="deleteMap('${safeName}')" title="删除"><i data-feather="trash-2"></i></button>
+            </td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    pagination.innerHTML = `
+        <span>共 ${maps.length} 条</span>
+        <div class="map-page-nav">
+            <button class="btn btn-secondary" ${mapCurrentPage <= 1 ? 'disabled' : ''} onclick="changeMapPage(mapCurrentPage - 1)"><i data-feather="chevron-left"></i></button>
+            <span class="map-page-indicator">${mapCurrentPage} / ${totalPages}</span>
+            <button class="btn btn-secondary" ${mapCurrentPage >= totalPages ? 'disabled' : ''} onclick="changeMapPage(mapCurrentPage + 1)"><i data-feather="chevron-right"></i></button>
+        </div>
+        <select class="form-input map-page-size" onchange="changeMapPageSize(this.value)">
+            <option value="10" ${mapPageSize === 10 ? 'selected' : ''}>10 / page</option>
+            <option value="20" ${mapPageSize === 20 ? 'selected' : ''}>20 / page</option>
+            <option value="50" ${mapPageSize === 50 ? 'selected' : ''}>50 / page</option>
+        </select>`;
+    updateMapSelectionUI();
+    feather.replace();
+}
+
+function toggleSelectAllMaps(checked) {
+    currentPageMaps().forEach(m => {
+        if (checked) selectedMapNames.add(m.name); else selectedMapNames.delete(m.name);
+    });
+    renderMapList();
+}
+
+function toggleMapSelection(name, checked) {
+    if (checked) selectedMapNames.add(name); else selectedMapNames.delete(name);
+    const pageMaps = currentPageMaps();
+    const allChecked = pageMaps.length > 0 && pageMaps.every(m => selectedMapNames.has(m.name));
+    const box = document.getElementById('mapSelectAll');
+    if (box) box.checked = allChecked;
+    updateMapSelectionUI();
+}
+
+function updateMapSelectionUI() {
+    const has = selectedMapNames.size > 0;
+    const renameBtn = document.getElementById('mapRenameDisplayBtn');
+    const applyBtn = document.getElementById('mapApplyBtn');
+    const deleteBtn = document.getElementById('mapDeleteBtn');
+    if (renameBtn) renameBtn.disabled = !has;
+    if (deleteBtn) deleteBtn.disabled = !has;
+    if (applyBtn) {
+        // 全部未应用 → 批量应用(link-2)；全部已应用 → 批量取消应用(slash)；混合 → 禁用防误操作
+        const selectedEntries = allMaps.filter(m => selectedMapNames.has(m.name));
+        const appliedCount = selectedEntries.filter(m => m.applied).length;
+        const mixed = has && appliedCount > 0 && appliedCount < selectedEntries.length;
+        const allApplied = has && appliedCount === selectedEntries.length;
+        // 重写时必须保留 .ebtn-label 标签：悬停展开动画依赖它（丢了按钮就只剩图标）
+        applyBtn.innerHTML = `<i data-feather="${allApplied ? 'slash' : 'link-2'}" style="width:16px;"></i>`
+            + `<span class="ebtn-label">${allApplied ? '一键取消应用' : '一键应用'}</span>`;
+        applyBtn.title = !has ? '一键应用'
+            : (allApplied ? '一键取消应用' : (mixed ? '选中项应用状态不一致，无法批量操作' : '一键应用'));
+        applyBtn.disabled = !has || mixed;
+    }
+    feather.replace();
+}
+
+function changeMapPage(page) {
+    mapCurrentPage = page;
+    renderMapList();
+}
+
+function changeMapPageSize(value) {
+    mapPageSize = parseInt(value, 10) || 10;
+    mapCurrentPage = 1;
+    renderMapList();
+}
+
+function mapUploadFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+
+    const dropzone = document.getElementById('mapDropzone');
+    const panel = document.getElementById('mapUploadPanel');
+    const ring = document.getElementById('mapUploadRing');
+    const percentEl = document.getElementById('mapUploadPercent');
+    const captionEl = document.getElementById('mapUploadCaption');
+    const sideEl = document.getElementById('mapUploadSide');
+    const bodyEl = document.getElementById('mapUploadBody');
+    const titleEl = document.getElementById('mapUploadTitle');
+    const RING_C = 2 * Math.PI * 52;
+
+    // 上传队列：非法格式不发起请求，直接以失败行展示
+    const queue = files.map(f => ({
+        file: f,
+        valid: /\.(vpk|zip|rar|7z)$/i.test(f.name),
+        status: 'pending',   // pending | uploading | done | failed
+        loaded: 0,
+        message: '',
+        barEl: null,
+        statusEl: null,
+        rowEl: null
+    }));
+    const multi = queue.length > 1;
+    // 总大小只累计合法文件（非法文件不参与传输，也不影响总进度）
+    const totalBytes = queue.reduce((s, q) => s + (q.valid ? q.file.size : 0), 0);
+    if (!queue.some(q => q.valid)) {
+        Swal.fire('失败!', '所选文件均不是支持的格式（.vpk/.zip/.rar/.7z）。', 'error');
+        return;
+    }
+    if (!multi && !queue[0].valid) {
+        Swal.fire('失败!', '不支持的格式（仅支持 .vpk/.zip/.rar/.7z）。', 'error');
+        return;
+    }
+
+    const meter = createUploadSpeedMeter();  // 聚合速度（跨文件平滑）
+    let processedBytes = 0, doneCount = 0, failedCount = 0;
+    mapUploadCancelled = false;
+    activeUploadAbort = null;
+
+    const resetUploadUi = () => {
+        dropzone.style.display = '';
+        panel.style.display = 'none';
+    };
+
+    // 进入上传态：隐藏上传区；单文件=右侧三行数据，多文件=右侧文件级进度列表
+    dropzone.style.display = 'none';
+    panel.style.display = 'block';
+    titleEl.textContent = `正在上传 ${queue.length} 个文件`;
+    ring.style.strokeDashoffset = RING_C;
+    percentEl.textContent = '0%';
+    captionEl.textContent = '';
+    if (multi) {
+        bodyEl.classList.add('multi');
+        sideEl.innerHTML = '';
+        const list = document.createElement('div');
+        list.className = 'upload-file-list';
+        for (const q of queue) {
+            const row = document.createElement('div');
+            row.className = 'upload-file-row';
+            const name = document.createElement('div');
+            name.className = 'upload-file-name';
+            name.textContent = q.file.name;
+            name.title = q.file.name;
+            const line = document.createElement('div');
+            line.className = 'upload-file-line';
+            const track = document.createElement('div');
+            track.className = 'upload-file-track';
+            const bar = document.createElement('div');
+            bar.className = 'upload-file-bar';
+            track.appendChild(bar);
+            const status = document.createElement('div');
+            status.className = 'upload-file-status';
+            status.textContent = q.valid ? '等待中' : '不支持的格式';
+            line.appendChild(track);
+            line.appendChild(status);
+            row.appendChild(name);
+            row.appendChild(line);
+            list.appendChild(row);
+            q.barEl = bar;
+            q.statusEl = status;
+            q.rowEl = row;
+        }
+        sideEl.appendChild(list);
+    } else {
+        bodyEl.classList.remove('multi');
+        sideEl.innerHTML = `
+            <div class="upload-ring-stats">
+                <div class="upload-stat"><span class="upload-stat-label">已上传</span><span class="upload-stat-value" id="mapUploadLoaded">0B</span></div>
+                <div class="upload-stat"><span class="upload-stat-label">总大小</span><span class="upload-stat-value" id="mapUploadTotal">${fmtBytes(totalBytes)}</span></div>
+                <div class="upload-stat"><span class="upload-stat-label">上传速度</span><span class="upload-stat-value" id="mapUploadSpeed">--</span></div>
+            </div>`;
+    }
+
+    // 聚合进度：已处理字节 + 当前上传中文件的字节；圆环与百分比展示总进度
+    const renderAggregate = () => {
+        const current = queue.find(q => q.status === 'uploading');
+        const totalLoaded = processedBytes + (current ? current.loaded : 0);
+        const percent = totalBytes ? Math.min(100, (totalLoaded / totalBytes) * 100) : 0;
+        ring.style.strokeDashoffset = (RING_C * (1 - percent / 100)).toFixed(1);
+        percentEl.textContent = percent.toFixed(1) + '%';
+        const speed = meter(totalLoaded);
+        const speedText = speed > 0 ? fmtBytes(speed) + '/s' : '--';
+        if (multi) {
+            captionEl.textContent = `已完成 ${doneCount}/${queue.length}` +
+                (failedCount ? ` · 失败 ${failedCount}` : '') + ` · 总速度 ${speedText}`;
+        } else {
+            const loadedEl = document.getElementById('mapUploadLoaded');
+            const speedEl = document.getElementById('mapUploadSpeed');
+            if (loadedEl) loadedEl.textContent = fmtBytes(totalLoaded);
+            if (speedEl) speedEl.textContent = speedText;
+        }
+    };
+
+    const setRow = (q, text, cls, percent) => {
+        if (!q.statusEl) return;
+        q.statusEl.textContent = text;
+        q.statusEl.className = 'upload-file-status' + (cls ? ' ' + cls : '');
+        if (q.rowEl) q.rowEl.title = text;
+        if (q.barEl && percent !== undefined) q.barEl.style.width = percent.toFixed(1) + '%';
+    };
+
+    // 逐文件顺序上传：与后端顺序处理一致，且每个文件的进度/速度真实独立
+    const uploadOne = (q) => new Promise((resolve) => {
+        if (!q.valid) {
+            q.status = 'failed';
+            failedCount++;
+            setRow(q, '不支持的格式', 'err', 0);
+            resolve();
+            return;
+        }
+        q.status = 'uploading';
+        setRow(q, '0.0%', '', 0);
+        const fileMeter = createUploadSpeedMeter();
+        const finish = (ok, message) => {
+            q.loaded = q.file.size;
+            processedBytes += q.file.size;
+            if (ok) {
+                q.status = 'done';
+                q.message = message;
+                doneCount++;
+                setRow(q, '已完成', 'ok', 100);
+            } else {
+                q.status = 'failed';
+                q.message = message;
+                failedCount++;
+                setRow(q, '失败: ' + message, 'err', 100);
+            }
+            renderAggregate();
+            resolve();
+        };
+        uploadFileSmart(q.file, {
+            purpose: 'map',
+            isCancelled: () => mapUploadCancelled,
+            onProgress: (loaded, total) => {
+                q.loaded = loaded;
+                const percent = total ? (loaded / total) * 100 : 0;
+                const speed = fileMeter(loaded);
+                setRow(q, `${percent.toFixed(1)}% · ${speed > 0 ? fmtBytes(speed) + '/s' : '--'} · ${fmtBytes(loaded)}`, '', percent);
+                renderAggregate();
+            }
+        }).then((data) => {
+            const r = (data.results || [])[0];
+            finish(!!(r && r.success), (r && r.message) || (r && r.success ? '入库成功' : '安装失败'));
+        }).catch((err) => {
+            if (err && err.cancelled) return resolve();  // 用户取消：不计数、不弹失败，由 runAll 统一收尾
+            finish(false, (err && err.message) || '上传失败');
+        });
+    });
+
+    const runAll = async () => {
+        for (const q of queue) {
+            if (mapUploadCancelled) break;  // 取消后不再发起剩余文件
+            await uploadOne(q);
+        }
+        activeUploadAbort = null;
+        resetUploadUi();
+        if (mapUploadCancelled) {
+            // 取消收尾：已完成的文件保留入库，未完成的不计入任何状态
+            const done = queue.filter(q => q.status === 'done').length;
+            mapToast(`已取消上传（已完成 ${done} 个文件）`);
+            loadMaps();
+            return;
+        }
+        const okCount = queue.filter(q => q.status === 'done').length;
+        const failCount = queue.length - okCount;
+        const rows = queue.map(q =>
+            `<div class="map-upload-result ${q.status === 'done' ? 'ok' : 'err'}">${q.status === 'done' ? '✓' : '✗'} <b>${escHtml(q.file.name)}</b><br>${escHtml(q.message || '').replace(/\n/g, '<br>')}</div>`
+        ).join('');
+        Swal.fire({
+            title: okCount > 0 && failCount > 0 ? '部分地图入库成功' : (okCount > 0 ? '地图上传完成!' : '地图上传失败'),
+            html: `<div class="map-upload-results">${rows}</div>`,
+            icon: okCount > 0 && failCount > 0 ? 'warning' : (okCount > 0 ? 'success' : 'error'),
+            confirmButtonText: '好的',
+            allowOutsideClick: false
+        });
+        switchMapTab('list');
+    };
+    runAll();
+}
+
+function mapToast(title) {
+    Swal.fire({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2400,
+        timerProgressBar: true,
+        icon: 'success',
+        title: title
+    });
+}
+
+async function applyMap(name) {
+    try {
+        const res = await apiCall('/api/maps/apply', { name });
+        mapToast(res.message || '已应用。');
+        loadMaps();
+    } catch (error) {
+        Swal.fire('失败!', `应用失败: ${error.message}`, 'error');
+    }
+}
+
+async function unapplyMap(name) {
+    try {
+        const res = await apiCall('/api/maps/unapply', { name });
+        mapToast(res.message || '已取消应用。');
+        loadMaps();
+    } catch (error) {
+        Swal.fire('失败!', `取消应用失败: ${error.message}`, 'error');
+    }
+}
+
+async function renameMap(oldName) {
+    const { value: newName } = await Swal.fire({
+        title: '重命名地图',
+        input: 'text',
+        inputValue: oldName,
+        showCancelButton: true,
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        inputValidator: (v) => {
+            const t = (v || '').trim();
+            if (!t) return '名称不能为空';
+            if (!/\.vpk$/i.test(t)) return '必须以 .vpk 结尾';
+            if (/[\\/:*?"<>|'`;&$]/.test(t)) return '包含非法字符';
+            return null;
+        }
+    });
+    const trimmed = (newName || '').trim();
+    if (!trimmed || trimmed === oldName) return;
+    try {
+        const res = await apiCall('/api/maps/rename', { old: oldName, new: trimmed });
+        if (selectedMapNames.has(oldName)) {
+            selectedMapNames.delete(oldName);
+            selectedMapNames.add(trimmed);
+        }
+        Swal.fire('成功!', res.message || '重命名成功。', 'success');
+        loadMaps();
+    } catch (error) {
+        Swal.fire('失败!', `重命名失败: ${error.message}`, 'error');
+    }
+}
+
+async function deleteMap(name) {
+    const result = await Swal.fire({
+        title: '确定要删除这张地图吗?',
+        text: `${name}（若已应用将同时摘除 addons 中的链接）`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: 'var(--status-danger)',
+        confirmButtonText: '是的, 删除!',
+        cancelButtonText: '取消'
+    });
+    if (!result.isConfirmed) return;
+    try {
+        const res = await apiCall('/api/maps/delete', { name });
+        selectedMapNames.delete(name);
+        Swal.fire('已删除!', res.message || '地图已删除。', 'success');
+        loadMaps();
+    } catch (error) {
+        Swal.fire('失败!', `删除失败: ${error.message}`, 'error');
+    }
+}
+
+async function deleteSelectedMaps() {
+    const names = [...selectedMapNames];
+    if (names.length === 0) return;
+    const result = await Swal.fire({
+        title: `确定要删除选中的 ${names.length} 张地图吗?`,
+        text: '若其中有已应用的地图，会同时摘除 addons 中对应的链接',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: 'var(--status-danger)',
+        confirmButtonText: '是的, 删除!',
+        cancelButtonText: '取消'
+    });
+    if (!result.isConfirmed) return;
+    Swal.fire({ title: '正在删除...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    let ok = 0, fail = 0;
+    for (const n of names) {
+        try {
+            await apiCall('/api/maps/delete', { name: n });
+            selectedMapNames.delete(n);
+            ok++;
+        } catch (error) {
+            fail++;
+        }
+    }
+    Swal.fire('完成!', `成功删除 ${ok} 张地图${fail ? `，${fail} 张删除失败` : ''}。`, fail ? 'warning' : 'success');
+    loadMaps();
+}
+
+// 批量应用/取消应用：按钮形态由 updateMapSelectionUI 按选中项状态切换
+async function batchToggleApply() {
+    const names = [...selectedMapNames];
+    if (names.length === 0) return;
+    const selectedEntries = allMaps.filter(m => selectedMapNames.has(m.name));
+    const allApplied = selectedEntries.length > 0 && selectedEntries.every(m => m.applied);
+    const actionText = allApplied ? '取消应用' : '应用';
+    const result = await Swal.fire({
+        title: `确定要${actionText}选中的 ${names.length} 张地图吗?`,
+        text: allApplied ? '将摘除 addons 中对应的软链接，库文件保留' : '将以软链接形式接入服务器 addons 目录',
+        showCancelButton: true,
+        confirmButtonText: `是的, ${actionText}!`,
+        cancelButtonText: '取消'
+    });
+    if (!result.isConfirmed) return;
+    Swal.fire({ title: `正在${actionText}...`, allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    let ok = 0;
+    const failures = [];
+    for (const n of names) {
+        try {
+            await apiCall('/api/maps/' + (allApplied ? 'unapply' : 'apply'), { name: n });
+            ok++;
+        } catch (error) {
+            failures.push({ name: n, message: error.message });
+        }
+    }
+    const failRows = failures.map(f =>
+        `<div class="map-upload-result err">✗ <b>${escHtml(f.name)}</b><br>${escHtml(f.message)}</div>`).join('');
+    Swal.fire({
+        title: failures.length ? (ok ? '部分地图处理失败' : `${actionText}失败`) : `${actionText}完成!`,
+        html: failures.length ? `<div class="map-upload-results">${failRows}</div>` : null,
+        icon: failures.length ? (ok ? 'warning' : 'error') : 'success',
+        confirmButtonText: '好的'
+    });
+    loadMaps();  // 刷新后选中项保留，按钮形态随新状态切换
+}
+
+async function openRenameDisplay() {
+    const names = [...selectedMapNames];
+    if (names.length === 0) return;
+    // 预览确认框：前缀输入实时刷新计划（防抖），确认后才真正执行
+    const result = await Swal.fire({
+        title: '命名更新预览',
+        width: 640,
+        html: `
+            <div class="rename-prefix-row">
+                <label class="upload-stat-label" for="renamePrefixInput">名称前缀（可选，留空则不加）</label>
+                <input id="renamePrefixInput" class="form-input" autocomplete="off">
+            </div>
+            <div id="renamePlanList" class="map-upload-results">
+                <div style="padding:8px 0;color:var(--text-secondary);">正在解析...</div>
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: '执行重命名',
+        cancelButtonText: '取消',
+        allowOutsideClick: false,
+        didOpen: () => {
+            const input = document.getElementById('renamePrefixInput');
+            const list = document.getElementById('renamePlanList');
+            let timer = null, lastPrefix = null;
+            // 恢复上次使用的前缀（localStorage 记忆）
+            try { input.value = localStorage.getItem('mapRenamePrefix') || ''; } catch (e) { /* 隐私模式等场景忽略 */ }
+            const refresh = async () => {
+                const prefix = input.value;
+                if (prefix === lastPrefix) return;
+                lastPrefix = prefix;
+                list.innerHTML = '<div style="padding:8px 0;color:var(--text-secondary);">正在解析...</div>';
+                try {
+                    const res = await apiCall('/api/maps/rename_display', { names, prefix, execute: false });
+                    const plan = res.plan || [];
+                    list.innerHTML = plan.length ? plan.map(p => `
+                        <div class="rename-plan-item">
+                            <div class="rename-plan-old">${escHtml(p.old)}</div>
+                            <div class="rename-plan-new ${p.changed ? '' : 'muted'}">${p.changed ? '→ ' + escHtml(p.new) : escHtml(p.source_note || '无需更改')}</div>
+                            <div class="rename-plan-src">${escHtml(p.source_note || '')}</div>
+                        </div>`).join('')
+                        : '<div style="padding:8px 0;color:var(--text-secondary);">没有可处理的内容</div>';
+                } catch (err) {
+                    list.innerHTML = `<div style="padding:8px 0;color:var(--status-danger);">${escHtml(err.message)}</div>`;
+                }
+            };
+            input.addEventListener('input', () => {
+                clearTimeout(timer);
+                timer = setTimeout(refresh, 350);
+            });
+            refresh();
+        },
+        preConfirm: () => {
+            const prefix = document.getElementById('renamePrefixInput').value;
+            try { localStorage.setItem('mapRenamePrefix', prefix); } catch (e) { /* 隐私模式等场景忽略 */ }
+            return prefix;
+        }
+    });
+    if (!result.isConfirmed) return;
+    const prefix = result.value || '';
+
+    Swal.fire({ title: '正在重命名...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    try {
+        const res = await apiCall('/api/maps/rename_display', { names, prefix, execute: true });
+        const results = res.results || [];
+        const okCount = results.filter(r => r.success).length;
+        const failCount = results.length - okCount;
+        const rows = results.map(r =>
+            `<div class="map-upload-result ${r.success ? 'ok' : 'err'}">${r.success ? '✓' : '✗'} <b>${escHtml(r.old)}</b><br>${escHtml(r.success ? '→ ' + r.new : (r.message || ''))}</div>`
+        ).join('');
+        Swal.fire({
+            title: failCount ? (okCount ? '部分重命名成功' : '重命名失败') : '重命名完成!',
+            html: `<div class="map-upload-results">${rows}</div>`,
+            icon: failCount ? (okCount ? 'warning' : 'error') : 'success',
+            confirmButtonText: '好的',
+            allowOutsideClick: false
+        });
+        selectedMapNames.clear();
+        loadMaps();
+    } catch (err) {
+        Swal.fire('失败!', `重命名失败: ${err.message}`, 'error');
+    }
+}
+
+function checkServerStatus() {
+    fetch('/api/status').then(res => res.json()).then(data => {
+        document.getElementById('deployPrompt').style.display = data.serverDeployed ? 'none' : 'block';
+        // 公告编辑仅服务端部署后可用（未部署时 host.txt/motd.txt 不存在）
+        document.getElementById('serverMsgBtn').style.display = data.serverDeployed ? '' : 'none';
+    }).catch(err => console.error("无法获取服务器状态", err));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    checkServerStatus();
+    // 支持从插件管理页跳转直达可安装插件目录（/files#plugin_dir）
+    if (window.location.hash === '#plugin_dir') {
+        loadFiles('plugin_dir', '可安装插件目录');
+    } else {
+        loadFiles('', '服务器根目录');
+    }
+    feather.replace();
+    // 「新建」下拉：新建文件 / 新建文件夹（交互与「上传」下拉一致）
+    const newBtn = document.getElementById('newBtn');
+    const newOptions = document.getElementById('newOptions');
+    const newContainer = document.getElementById('newContainer');
+    newBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const isHidden = newOptions.style.display === 'none' || newOptions.style.display === '';
+        newOptions.style.display = isHidden ? 'block' : 'none';
+    });
+    document.addEventListener('click', (event) => {
+        if (!newContainer.contains(event.target)) {
+            newOptions.style.display = 'none';
+        }
+    });
+    document.getElementById('newFileBtn').addEventListener('click', () => {
+        newOptions.style.display = 'none';
+        createFile();
+    });
+    document.getElementById('newFolderBtn').addEventListener('click', () => {
+        newOptions.style.display = 'none';
+        createFolder();
+    });
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadOptions = document.getElementById('uploadOptions');
+    const uploadContainer = document.getElementById('uploadContainer');
+    uploadBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const isHidden = uploadOptions.style.display === 'none' || uploadOptions.style.display === '';
+        uploadOptions.style.display = isHidden ? 'block' : 'none';
+    });
+    document.addEventListener('click', (event) => {
+        if (!uploadContainer.contains(event.target)) {
+            uploadOptions.style.display = 'none';
+        }
+    });
+    document.getElementById('uploadFileBtn').addEventListener('click', () => {
+        document.getElementById('fileInput').click();
+        uploadOptions.style.display = 'none';
+    });
+    document.getElementById('uploadFolderBtn').addEventListener('click', () => {
+        document.getElementById('folderInput').click();
+        uploadOptions.style.display = 'none';
+    });
+    document.getElementById('fileInput').addEventListener('change', (e) => uploadFiles(e.target.files));
+    document.getElementById('folderInput').addEventListener('change', (e) => uploadFiles(e.target.files));
+    // --- 回到顶部：页面（文件列表较长时）下滚超过一屏的 1/3 即显示，点击平滑回顶 ---
+    const backToTopBtn = document.getElementById('backToTopBtn');
+    const backToTopThreshold = Math.max(240, window.innerHeight / 3);
+    const backToTopCard = document.querySelector('.file-manager');
+    // 横向贴在文件浏览器卡片的右侧外面（与卡片边缘保持 16px 间距），而非视口右下角——
+    // 宽屏下卡片右侧留白很大，固定视口定位会显得离列表太远。
+    // 卡片宽度随侧边栏展开/收起的变化由 ResizeObserver 捕获；窄屏时退化为贴视口右缘
+    function positionBackToTop() {
+        if (!backToTopCard) return;
+        const rect = backToTopCard.getBoundingClientRect();
+        // 按钮左缘 = 卡片右缘 + 16px → right = 视口宽 - 卡片右缘 - (16 + 按钮宽 44)
+        backToTopBtn.style.right = Math.max(16, window.innerWidth - rect.right - 60) + 'px';
+    }
+    window.addEventListener('resize', positionBackToTop);
+    if (window.ResizeObserver && backToTopCard) {
+        new ResizeObserver(positionBackToTop).observe(backToTopCard);
+    }
+    // 侧边栏展开/收起只平移卡片位置（margin 过渡）而不改尺寸，上面的观察器都不触发，
+    // 需监听过渡结束事件重新定位
+    document.addEventListener('transitionend', positionBackToTop);
+    positionBackToTop();
+    window.addEventListener('scroll', () => {
+        positionBackToTop();
+        backToTopBtn.style.display = window.scrollY > backToTopThreshold ? 'inline-flex' : 'none';
+    }, { passive: true });
+    backToTopBtn.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    document.getElementById('deployBtn').addEventListener('click', () => handleDeployment('deploy_server'));
+    document.getElementById('mapManageBtn').addEventListener('click', openMapManager);
+    document.getElementById('serverMsgBtn').addEventListener('click', openServerMsgModal);
+    document.getElementById('saveServerMsgBtn').addEventListener('click', saveServerMsg);
+    // --- 地图管理弹窗事件 ---
+    const mapDropzone = document.getElementById('mapDropzone');
+    mapDropzone.addEventListener('click', () => document.getElementById('mapFileInput').click());
+    document.getElementById('mapFileInput').addEventListener('change', (e) => {
+        mapUploadFiles(e.target.files);
+        e.target.value = '';
+    });
+});
+</script>
+
+</body>
+</html>

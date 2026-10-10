@@ -1,0 +1,18 @@
+<!-- 共享文本编辑器模态（editor.js）：文件管理页编辑服务器文件 / 插件管理页编辑库内配置 -->
+<div id="editorModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="editorFileName">编辑文件</h2>
+            <span class="close-btn" onclick="EditorModal.close()">&times;</span>
+        </div>
+        <select id="editorFileSelect" style="display:none;" onchange="EditorModal.switchFile()"></select>
+        <div id="editorFilePath" class="editor-file-path" style="display:none;"></div>
+        <div id="editorHint" style="display:none;"></div>
+        <textarea id="editorTextarea" spellcheck="false"></textarea>
+        <div class="modal-footer">
+            <span class="editor-kbd-hint">Tab 缩进 · Shift+Tab 反缩进 · Ctrl+S 保存</span>
+            <button class="btn btn-secondary" onclick="EditorModal.close()">取消</button>
+            <button class="btn btn-primary" id="saveFileBtn" onclick="EditorModal.save()">保存</button>
+        </div>
+    </div>
+</div>

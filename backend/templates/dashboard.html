@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>仪表盘 - L4D2 管理面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+
+    {% include 'sidebar.html' %}
+
+    <div class="main-container">
+        <header class="page-header">
+            <div>
+                <h1>仪表盘</h1>
+                <p>服务器核心状态总览</p>
+            </div>
+        </header>
+
+        <div class="dashboard-grid">
+            <div class="card status-card">
+                <div class="card-header">
+                    <h2>系统状态 & 核心操作</h2>
+                </div>
+                <div class="status-tiles">
+                    <div class="status-tile">
+                        <span id="serverStatus">未知</span>
+                        <small>服务器文件</small>
+                    </div>
+                    <div class="status-tile">
+                        <span id="smStatus">未知</span>
+                        <small>SourceMod</small>
+                    </div>
+                    <div class="status-tile">
+                        <span id="instanceCount">0</span>
+                        <small>运行中实例</small>
+                    </div>
+                    <div class="status-tile">
+                        <span id="pluginCount">0</span>
+                        <small>已安装插件</small>
+                    </div>
+                </div>
+                <div class="status-actions">
+                    <a href="/instances" class="btn btn-primary">
+                        <i data-feather="server" style="width:18px;"></i>
+                        <span>前往实例管理</span>
+                    </a>
+                    <a href="/files" class="btn btn-secondary">
+                        <i data-feather="folder" style="width:18px;"></i>
+                        <span>服务器文件管理</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- 服务器资源：左侧磁贴总览（点击切换）+ 右侧对应详情 -->
+        <div class="res-master-grid">
+            <div class="card res-list-card">
+                <h2 class="res-list-title">服务器资源</h2>
+                <div class="res-grid">
+                    <button type="button" class="res-tile active" data-res="cpu">
+                        <span class="res-name">CPU 使用率</span>
+                        <span class="res-pct" id="tileCpuVal">--</span>
+                        <span class="res-sub" id="tileCpuSub">--</span>
+                    </button>
+                    <button type="button" class="res-tile" data-res="mem">
+                        <span class="res-name">内存使用率</span>
+                        <span class="res-pct" id="tileMemVal">--</span>
+                        <span class="res-sub" id="tileMemSub">--</span>
+                    </button>
+                    <button type="button" class="res-tile" data-res="disk">
+                        <span class="res-name">磁盘使用率</span>
+                        <span class="res-pct" id="tileDiskVal">--</span>
+                        <span class="res-sub" id="tileDiskSub">--</span>
+                    </button>
+                    <button type="button" class="res-tile" data-res="net">
+                        <span class="res-name">网络</span>
+                        <span class="res-pct" id="tileNetVal">--</span>
+                        <span class="res-sub" id="tileNetSub">--</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="card res-detail-card">
+                <!-- CPU 详情 -->
+                <div class="res-detail active" id="detail-cpu">
+                    <div class="metric-header">
+                        <i data-feather="cpu"></i>
+                        <h3 class="metric-title">CPU 使用率</h3>
+                        <span id="cpuCores" class="metric-mount">--</span>
+                        <span id="cpuValue" class="metric-value">--</span>
+                    </div>
+                    <div class="metric-sub">
+                        <span id="cpuModel" class="metric-model">--</span>
+                        <span>面板占用: <span id="cpuPanel" class="v">--</span></span>
+                    </div>
+                    <div class="metric-bar"><div id="cpuBar" class="metric-bar-fill" style="width: 0%;"></div></div>
+                    <div class="metric-divider"></div>
+                    <div class="metric-section-title">
+                        <i data-feather="bar-chart-2"></i>核心负载
+                        <span class="metric-note" id="cpuCoreNote"></span>
+                    </div>
+                    <div id="cpuCoreRows"></div>
+                </div>
+
+                <!-- 内存详情 -->
+                <div class="res-detail" id="detail-mem">
+                    <div class="metric-header">
+                        <i data-feather="server"></i>
+                        <h3 class="metric-title">内存使用率</h3>
+                        <span id="memValue" class="metric-value">--</span>
+                    </div>
+                    <div class="metric-sub">
+                        <span>已用: <span id="memUsed" class="v">--</span></span>
+                        <span>总计: <span id="memTotal" class="v">--</span></span>
+                    </div>
+                    <div class="metric-bar"><div id="memBar" class="metric-bar-fill" style="width: 0%;"></div></div>
+                    <div class="metric-divider"></div>
+                    <div class="metric-section-title"><i data-feather="bar-chart-2"></i>详细信息</div>
+                    <div class="metric-kv">
+                        <span class="k"><span class="status-dot running"></span>可用:</span>
+                        <span><span id="memAvail" class="v">--</span> <small>实际可用</small></span>
+                    </div>
+                    <div class="metric-kv">
+                        <span class="k"><span class="metric-dot-purple"></span>缓存:</span>
+                        <span><span id="memCached" class="v">--</span> <small>缓冲区+缓存</small></span>
+                    </div>
+                    <div class="metric-kv">
+                        <span class="k"><i data-feather="activity" class="metric-dot"></i>面板占用:</span>
+                        <span><span id="memPanel" class="v">--</span> <small id="memPanelPct"></small></span>
+                    </div>
+                </div>
+
+                <!-- 磁盘详情 -->
+                <div class="res-detail" id="detail-disk">
+                    <div class="metric-header">
+                        <i data-feather="hard-drive"></i>
+                        <h3 class="metric-title">磁盘使用率</h3>
+                        <span id="diskMount" class="metric-mount">--</span>
+                        <span id="diskValue" class="metric-value">--</span>
+                    </div>
+                    <div class="metric-sub">
+                        <span>已用: <span id="diskUsed" class="v">--</span></span>
+                        <span>总计: <span id="diskTotal" class="v">--</span></span>
+                    </div>
+                    <div class="metric-bar"><div id="diskBar" class="metric-bar-fill" style="width: 0%;"></div></div>
+                    <div class="metric-divider"></div>
+                    <div class="metric-section-title"><i data-feather="bar-chart-2"></i>实时读写</div>
+                    <div class="metric-kv">
+                        <span class="k"><i data-feather="download" class="metric-dot"></i>读取:</span>
+                        <span><span id="diskRead" class="v">--</span> <small id="diskReadIops"></small></span>
+                    </div>
+                    <div class="metric-kv">
+                        <span class="k"><i data-feather="upload" class="metric-dot-orange"></i>写入:</span>
+                        <span><span id="diskWrite" class="v">--</span> <small id="diskWriteIops"></small></span>
+                    </div>
+                </div>
+
+                <!-- 网络详情 -->
+                <div class="res-detail" id="detail-net">
+                    <div class="metric-header">
+                        <i data-feather="wifi"></i>
+                        <h3 class="metric-title">网络使用率</h3>
+                        <span id="netTotal" class="metric-value">--</span>
+                    </div>
+                    <div class="metric-divider" style="margin-top: 0;"></div>
+                    <div class="metric-section-title"><i data-feather="bar-chart-2"></i>实时流量</div>
+                    <div class="metric-kv">
+                        <span class="k"><i data-feather="download" class="metric-dot"></i>接收:</span>
+                        <span><span id="netRecv" class="v ok">--</span> <small>下行流量</small></span>
+                    </div>
+                    <div class="metric-kv">
+                        <span class="k"><i data-feather="upload" class="metric-dot-orange"></i>发送:</span>
+                        <span><span id="netSent" class="v danger">--</span> <small>上行流量</small></span>
+                    </div>
+                    <div class="metric-kv">
+                        <span class="k"><i data-feather="activity" class="metric-dot"></i>总计:</span>
+                        <span><span id="netTotalSum" class="v accent">--</span> <small>总流量</small></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// --- JavaScript 逻辑 ---
+document.addEventListener('DOMContentLoaded', () => {
+    // 激活 Feather 图标
+    feather.replace();
+
+    // 资源磁贴切换：选中磁贴高亮，右侧显示对应详情
+    const resTiles = document.querySelectorAll('.res-tile');
+    resTiles.forEach(tile => {
+        tile.addEventListener('click', () => {
+            resTiles.forEach(t => t.classList.toggle('active', t === tile));
+            document.querySelectorAll('.res-detail').forEach(d => {
+                d.classList.toggle('active', d.id === 'detail-' + tile.dataset.res);
+            });
+        });
+    });
+
+    // DOM 元素获取
+    const serverStatusEl = document.getElementById('serverStatus');
+    const smStatusEl = document.getElementById('smStatus');
+    const instanceCountEl = document.getElementById('instanceCount');
+    const pluginCountEl = document.getElementById('pluginCount');
+
+    // --- 数据获取与渲染 ---
+    async function fetchData(url) {
+        const response = await fetch(url);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+        return response.json(); // 直接解析JSON
+    }
+
+    function updateStatus() {
+        fetchData('/api/status').then(data => {
+            updateStatusLabel(serverStatusEl, data.serverDeployed, '已部署', '未部署');
+            updateStatusLabel(smStatusEl, data.smInstalled, '已安装', '未安装');
+        }).catch(err => console.error("无法获取状态:", err));
+    }
+
+    function updateInstanceCount() {
+        fetchData('/api/instances').then(data => {
+            let runningCount = 0;
+            for (const name in data) {
+                if (data[name].running) runningCount++;
+            }
+            instanceCountEl.textContent = runningCount;
+        }).catch(err => {
+            console.error("无法获取实例列表:", err);
+            instanceCountEl.textContent = 'N/A';
+        });
+    }
+
+    function updatePlugins() {
+        fetchData('/api/plugins').then(data => {
+            pluginCountEl.textContent = data.installed.length;
+        }).catch(err => {
+            console.error("无法获取插件列表:", err);
+            pluginCountEl.textContent = 'N/A';
+        });
+    }
+
+    function updateStatusLabel(el, condition, trueText, falseText) {
+        el.textContent = condition ? trueText : falseText;
+        // 未就绪 = 常规文字色（亮色黑/暗色白），就绪 = 陶土橙强调
+        el.style.color = condition ? 'var(--brand-accent)' : 'var(--text-primary)';
+    }
+
+    function refreshAll() {
+        updateStatus();
+        updateInstanceCount();
+        updatePlugins();
+    }
+
+    refreshAll();
+    setInterval(refreshAll, 10000);
+
+    // --- 服务器监控（每 2 秒） ---
+    let metricsLoading = false;
+
+    function fmtBytes(bytes) {
+        if (!bytes || bytes <= 0) return '0 B';
+        if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(2) + ' GB';
+        if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(2) + ' MB';
+        return (bytes / 1024).toFixed(2) + ' KB';
+    }
+
+    // 磁贴明细行用一位小数 + 紧凑格式（如 15.4GB/40GB），保证文本完整放入 2×2 磁贴
+    function fmtBytes1(bytes) {
+        if (!bytes || bytes <= 0) return '0B';
+        if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + 'GB';
+        if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(1) + 'MB';
+        return (bytes / 1024).toFixed(1) + 'KB';
+    }
+
+    // 速率自适应单位：≥1000 KB/s 自动切换为 MB/s，避免大流量时数字过长
+    function fmtRate(kbps) {
+        const v = kbps || 0;
+        if (v >= 1000) return (v / 1000).toFixed(2) + ' MB/s';
+        return v.toFixed(2) + ' KB/s';
+    }
+
+    // 磁贴明细行专用：一位小数 + 紧凑格式（无空格），保证文本完整放入 2×2 磁贴
+    function fmtRate1(kbps) {
+        const v = kbps || 0;
+        if (v >= 1000) return (v / 1000).toFixed(1) + 'MB/s';
+        return v.toFixed(1) + 'KB/s';
+    }
+
+    function levelClass(percent) {
+        if (percent >= 85) return 'danger';
+        if (percent >= 60) return 'warn';
+        return 'ok';
+    }
+
+    function setBar(barEl, valueEl, percent) {
+        const cls = levelClass(percent);
+        barEl.style.width = Math.min(100, Math.max(0, percent)).toFixed(1) + '%';
+        barEl.className = 'metric-bar-fill ' + cls;
+        valueEl.textContent = percent.toFixed(1) + '%';
+        valueEl.className = 'metric-value ' + cls;
+    }
+
+    function setTileValue(valEl, text, cls) {
+        valEl.textContent = text;
+        valEl.className = 'res-pct' + (cls ? ' ' + cls : '');
+    }
+
+    async function pollMetrics() {
+        if (metricsLoading) return;
+        metricsLoading = true;
+        try {
+            const m = await fetchData('/api/metrics');
+            const $ = (id) => document.getElementById(id);
+
+            // CPU：磁贴 + 详情
+            setBar($('cpuBar'), $('cpuValue'), m.cpu.percent);
+            const phys = m.cpu.physical_cores, logical = m.cpu.cores;
+            // 物理数 = 逻辑数（如云服务器 vCPU 无超线程）时只显示"N 核"，否则显示"X 核 / Y 线程"
+            const coresText = phys && logical
+                ? (phys === logical ? phys + ' 核' : phys + ' 核 / ' + logical + ' 线程')
+                : (logical ?? '--');
+            $('cpuCores').textContent = coresText;
+            $('cpuModel').textContent = m.cpu.model || '未知';
+            $('cpuPanel').textContent = (m.cpu.panel_percent || 0).toFixed(2) + '%';
+            setTileValue($('tileCpuVal'), m.cpu.percent.toFixed(1) + '%', levelClass(m.cpu.percent));
+            $('tileCpuSub').textContent = coresText;
+            const rows = $('cpuCoreRows');
+            rows.innerHTML = (m.cpu.per_core || []).map((pct, i) => `
+                <div class="core-row">
+                    <span class="name">核心 ${i + 1}:</span>
+                    <div class="core-bar"><div class="core-bar-fill ${levelClass(pct)}" style="width: ${Math.min(100, pct).toFixed(1)}%;"></div></div>
+                    <span class="pct">${pct.toFixed(1)}%</span>
+                </div>`).join('');
+            $('cpuCoreNote').textContent = (m.cpu.per_core || []).length + ' 线程';
+
+            // 内存：磁贴 + 详情
+            setBar($('memBar'), $('memValue'), m.memory.percent);
+            const memUsedText = fmtBytes(m.memory.used), memTotalText = fmtBytes(m.memory.total);
+            $('memUsed').textContent = memUsedText;
+            $('memTotal').textContent = memTotalText;
+            $('memPanel').textContent = fmtBytes(m.memory.panel_rss);
+            $('memPanelPct').textContent = m.memory.total ? '(' + (m.memory.panel_rss / m.memory.total * 100).toFixed(2) + '%)' : '';
+            $('memAvail').textContent = fmtBytes(m.memory.available);
+            $('memCached').textContent = fmtBytes(m.memory.cached);
+            setTileValue($('tileMemVal'), m.memory.percent.toFixed(1) + '%', levelClass(m.memory.percent));
+            $('tileMemSub').textContent = fmtBytes1(m.memory.used) + '/' + fmtBytes1(m.memory.total);
+
+            // 磁盘：磁贴 + 详情
+            setBar($('diskBar'), $('diskValue'), m.disk.percent);
+            $('diskMount').textContent = m.disk.mount || '--';
+            const diskUsedText = fmtBytes(m.disk.used), diskTotalText = fmtBytes(m.disk.total);
+            $('diskUsed').textContent = diskUsedText;
+            $('diskTotal').textContent = diskTotalText;
+            $('diskRead').textContent = fmtRate(m.disk.read_kbps);
+            $('diskReadIops').textContent = (m.disk.read_iops || 0).toFixed(1) + ' IOPS';
+            $('diskWrite').textContent = fmtRate(m.disk.write_kbps);
+            $('diskWriteIops').textContent = (m.disk.write_iops || 0).toFixed(1) + ' IOPS';
+            setTileValue($('tileDiskVal'), m.disk.percent.toFixed(1) + '%', levelClass(m.disk.percent));
+            $('tileDiskSub').textContent = fmtBytes1(m.disk.used) + '/' + fmtBytes1(m.disk.total);
+
+            // 网络：磁贴（大号数值为总速率，≥1000KB/s 自动切 MB/s）+ 详情
+            const recvText = fmtRate(m.network.recv_kbps), sentText = fmtRate(m.network.sent_kbps);
+            const totalKbps = (m.network.recv_kbps || 0) + (m.network.sent_kbps || 0);
+            $('netRecv').textContent = recvText;
+            $('netSent').textContent = sentText;
+            $('netTotal').textContent = fmtRate(totalKbps);
+            $('netTotalSum').textContent = fmtRate(totalKbps);
+            setTileValue($('tileNetVal'), fmtRate(totalKbps), '');
+            // 磁贴明细行用紧凑格式（一位小数、无空格），避免等宽文本过宽撑出卡片
+            $('tileNetSub').textContent = '↓' + fmtRate1(m.network.recv_kbps)
+                + ' ↑' + fmtRate1(m.network.sent_kbps);
+
+            feather.replace();
+        } catch (err) {
+            console.error("无法获取监控数据:", err);
+        } finally {
+            metricsLoading = false;
+        }
+    }
+
+    pollMetrics();
+    setInterval(pollMetrics, 2000);
+});
+</script>
+
+</body>
+</html>

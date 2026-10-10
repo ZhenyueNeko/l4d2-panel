@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>插件管理 - L4D2 管理面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="{{ url_for('static', filename='editor.js') }}"></script>
+    <style>
+        /* 卡片内滚动：插件多时列表在卡片内部滚动，浏览器页面不再随内容整体拉长 */
+        @media (min-width: 769px) {
+            .main-container {
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .page-header { flex-shrink: 0; }
+            .plugins-container { flex: 1; min-height: 0; grid-auto-rows: minmax(0, 1fr); }
+            .plugins-container .card { min-height: 0; overflow: hidden; }
+            .plugins-container .card-header,
+            .plugins-container .list-controls { flex-shrink: 0; }
+            .plugins-container .item-list { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+        }
+        /* 窄屏（底部导航条）：保留整页滚动，但列表限高避免单卡过长 */
+        @media (max-width: 768px) {
+            .plugins-container .item-list { max-height: 55vh; overflow-y: auto; }
+        }
+    </style>
+</head>
+<body>
+
+    {% include 'sidebar.html' %}
+
+    <div class="main-container">
+        <header class="page-header">
+            <div>
+                <h1>插件管理</h1>
+                <p>勾选后批量安装或卸载服务器插件；上传新插件请到 <a href="/files#plugin_dir">文件管理 → 可安装插件目录</a></p>
+            </div>
+        </header>
+
+        <div class="grid-container plugins-container">
+            <div class="card">
+                <div class="card-header">
+                    <h2>可安装插件 (<span id="availableCount">0</span>)</h2>
+                    <div style="display: flex; gap: var(--space-2);">
+                        <button class="btn btn-primary" id="installSelectedBtn">安装选中项</button>
+                    </div>
+                </div>
+                <div class="list-controls" style="padding: var(--space-3); border-bottom: 1px solid var(--border-default);">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="selectAllAvailable"> 全选
+                    </label>
+                </div>
+                <ul id="availableList" class="item-list">
+                    <li>加载中...</li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>已安装插件 (<span id="installedCount">0</span>)</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-danger" id="uninstallSelectedBtn">卸载选中项</button>
+                    </div>
+                </div>
+                 <div class="list-controls" style="padding: var(--space-3); border-bottom: 1px solid var(--border-default);">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="selectAllInstalled"> 全选
+                    </label>
+                </div>
+                <ul id="installedList" class="item-list">
+                    <li>加载中...</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    {% include 'editor_modal.html' %}
+
+
+<script>
+// 库内可编辑配置文件清单：{插件名: [相对路径...]}，由 /api/plugins/config/list 提供
+let configFileMap = {};
+
+function escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// 打开插件的配置/依赖文件编辑器（库内主副本；多文件时通过顶部切换器切换）
+function openPluginConfig(name) {
+    const files = configFileMap[name] || [];
+    if (!files.length) return;
+    EditorModal.open({
+        title: `插件配置 - ${name}`,
+        files: files,
+        load: async (rel) => {
+            const r = await fetch('/api/plugins/config/get', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plugin: name, rel })
+            });
+            const d = await r.json();
+            if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+            // 提示条跟随当前文件动态变化（gamedata 风险警示 / GBK 转码说明）
+            const hintEl = document.getElementById('editorHint');
+            const parts = [];
+            if (String(rel).toLowerCase().indexOf('gamedata/') >= 0) {
+                parts.push('⚠ gamedata 为插件签名/数据文件，改动可能导致插件崩溃，请谨慎修改。');
+            }
+            if (d.encoding === 'gbk') {
+                parts.push('当前文件为 GBK 编码，保存时将转换为 UTF-8。');
+            }
+            if (parts.length) {
+                hintEl.style.display = 'block';
+                hintEl.innerHTML = parts.join('<br>');
+            } else {
+                hintEl.style.display = 'none';
+                hintEl.innerHTML = '';
+            }
+            return d.content;
+        },
+        save: async (rel, content) => {
+            const r = await fetch('/api/plugins/config/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plugin: name, rel, content })
+            });
+            const d = await r.json();
+            if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+            return d;
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    feather.replace();
+
+    // DOM 元素
+    const availableListEl = document.getElementById('availableList');
+    const installedListEl = document.getElementById('installedList');
+    const availableCountEl = document.getElementById('availableCount');
+    const installedCountEl = document.getElementById('installedCount');
+    const selectAllAvailable = document.getElementById('selectAllAvailable');
+    const selectAllInstalled = document.getElementById('selectAllInstalled');
+    const installBtn = document.getElementById('installSelectedBtn');
+    const uninstallBtn = document.getElementById('uninstallSelectedBtn');
+
+    // --- 数据获取与渲染 ---
+    async function fetchPlugins() {
+        try {
+            const [response, configResp] = await Promise.all([
+                fetch('/api/plugins'),
+                fetch('/api/plugins/config/list').catch(() => null)
+            ]);
+            if (!response.ok) {
+                throw new Error(`HTTP 错误! 状态: ${response.status}`);
+            }
+            const plugins = await response.json();
+            configFileMap = (configResp && configResp.ok)
+                ? (await configResp.json()).configurable || {} : {};
+
+            renderLists(plugins.available || [], plugins.installed || []);
+        } catch (error) {
+            console.error("无法获取插件列表:", error);
+            availableListEl.innerHTML = '<li>加载失败</li>';
+            installedListEl.innerHTML = '<li>加载失败</li>';
+        }
+    }
+
+    function renderLists(available, installed) {
+        renderPluginList(availableListEl, available, 'available');
+        renderPluginList(installedListEl, installed, 'installed');
+        availableCountEl.textContent = available.length;
+        installedCountEl.textContent = installed.length;
+        updateSelectAllState();
+        // 列表为动态渲染，行内的 feather 图标（如"配置"齿轮）需重绘一次
+        if (window.feather) feather.replace();
+    }
+    
+    function renderPluginList(listEl, plugins, type) {
+        listEl.innerHTML = '';
+        if (plugins.length === 0) {
+            listEl.innerHTML = `<li style="padding: var(--space-4); text-align: center; color: var(--text-secondary);">没有${type === 'available' ? '可安装' : '已安装'}的插件。</li>`;
+            return;
+        }
+        plugins.forEach(rawName => {
+            const name = String(rawName);
+            const item = document.createElement('li');
+            item.className = 'list-item';
+            const escName = escHtml(name);
+            const attrName = escName.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+            // 仅"可安装"插件显示「配置」按钮（库内有副本才有可编辑文件）；齿轮图标 + 悬停提示
+            const configFiles = type === 'available' ? (configFileMap[name] || []) : [];
+            const configBtn = configFiles.length
+                ? `<button class="btn btn-secondary config-btn" onclick="openPluginConfig('${attrName}')" title="编辑库内配置/依赖文件"><i data-feather="settings" style="width:15px;"></i></button>`
+                : '';
+            item.innerHTML = `<label class="checkbox-label" style="flex:1; min-width:0;"><input type="checkbox" data-name="${attrName}" data-type="${type}"><span>${escName}</span></label>${configBtn}`;
+            listEl.appendChild(item);
+        });
+    }
+
+    // --- 事件处理 ---
+    selectAllAvailable.addEventListener('change', () => toggleSelectAll('available', selectAllAvailable.checked));
+    selectAllInstalled.addEventListener('change', () => toggleSelectAll('installed', selectAllInstalled.checked));
+    
+    installBtn.addEventListener('click', () => handleBatchAction('install_plugin', 'available'));
+    uninstallBtn.addEventListener('click', () => handleBatchAction('uninstall_plugin', 'installed'));
+    
+    document.querySelector('.plugins-container').addEventListener('change', (e) => {
+        if (e.target.matches('input[type="checkbox"]')) {
+            updateSelectAllState();
+        }
+    });
+
+    function toggleSelectAll(type, isChecked) {
+        document.querySelectorAll(`input[data-type="${type}"]`).forEach(cb => cb.checked = isChecked);
+    }
+
+    function updateSelectAllState() {
+        const availableCheckboxes = document.querySelectorAll('input[data-type="available"]');
+        const installedCheckboxes = document.querySelectorAll('input[data-type="installed"]');
+        selectAllAvailable.checked = availableCheckboxes.length > 0 && Array.from(availableCheckboxes).every(cb => cb.checked);
+        selectAllInstalled.checked = installedCheckboxes.length > 0 && Array.from(installedCheckboxes).every(cb => cb.checked);
+    }
+
+    async function handleBatchAction(action, type) {
+        const selectedPlugins = Array.from(document.querySelectorAll(`input[data-type="${type}"]:checked`)).map(cb => cb.dataset.name);
+
+        if (selectedPlugins.length === 0) {
+            Swal.fire('未选择', '请至少选择一个插件。', 'info');
+            return;
+        }
+
+        const result = await Swal.fire({
+            title: '确认批量操作',
+            html: `你确定要对这 ${selectedPlugins.length} 个插件执行 <b>${action.startsWith('install') ? '安装' : '卸载'}</b> 操作吗？`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: '是的, 执行!',
+            cancelButtonText: '取消'
+        });
+
+        if (!result.isConfirmed) return;
+
+        Swal.fire({ title: '正在批量处理...', html: `已完成 0 / ${selectedPlugins.length}`, allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        
+        let successCount = 0;
+        let errorList = [];
+
+        for (const pluginName of selectedPlugins) {
+            try {
+                const response = await fetch('/api/action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, payload: pluginName })
+                });
+                const resData = await response.json();
+                if (!response.ok || !resData.success) throw new Error(resData.message || `处理 ${pluginName} 失败`);
+                successCount++;
+                Swal.update({ html: `已完成 ${successCount} / ${selectedPlugins.length}` });
+            } catch (error) {
+                errorList.push(`${pluginName}: ${error.message}`);
+            }
+        }
+        
+        if (errorList.length === 0) {
+            Swal.fire('操作完成', `成功处理了 ${successCount} 个插件。`, 'success');
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: '部分操作失败',
+                html: `成功 ${successCount} 个, 失败 ${errorList.length} 个。<br><br><b>错误详情:</b><br><pre style="text-align: left; max-height: 150px; overflow-y: auto;">${errorList.join('\n')}</pre>`
+            });
+        }
+
+        fetchPlugins();
+    }
+
+    fetchPlugins();
+});
+</script>
+
+</body>
+</html>

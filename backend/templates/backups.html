@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>备份管理 - L4D2 管理面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+
+    {% include 'sidebar.html' %}
+
+    <div class="main-container">
+        <header class="page-header">
+            <div>
+                <h1>备份管理</h1>
+                <p>实例卡片 &amp; 已安装插件的备份，恢复时整体切换配置</p>
+            </div>
+        </header>
+
+        <!-- 顶部并列：备份统计（左）+ 当前状态（右） -->
+        <div class="backup-top-grid">
+            <div class="card">
+                <div class="card-header"><h2>备份统计</h2></div>
+                <div class="bstat-stack">
+                    <div class="bstat">
+                        <i data-feather="archive" class="bstat-icon"></i>
+                        <div class="bstat-body"><span class="bstat-num" id="statCount">–</span><span class="bstat-label">备份档案</span></div>
+                    </div>
+                    <div class="bstat">
+                        <i data-feather="hard-drive" class="bstat-icon"></i>
+                        <div class="bstat-body"><span class="bstat-num" id="statSize">–</span><span class="bstat-label">总占用</span></div>
+                    </div>
+                    <div class="bstat">
+                        <i data-feather="clock" class="bstat-icon"></i>
+                        <div class="bstat-body"><span class="bstat-num" id="statLast">–</span><span class="bstat-label">最近备份</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header card-header-flex">
+                    <h2>当前状态</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-primary backup-start-btn" id="doBackupBtn" onclick="doBackup()">
+                            <i data-feather="archive" style="width:12px;"></i><span class="do-backup-label">立即备份</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="csc-body" style="padding: var(--space-4);">
+                    <!-- 平常态：两张可交互内容瓦片（点击弹出完整明细） -->
+                    <div class="csc-tiles" id="cscTiles">
+                        <div class="csc-tile csc-clickable" id="cscTileInst" onclick="toggleTilePopover(event, 'inst')" title="点击查看实例明细">
+                            <div class="csc-tile-head"><i data-feather="server" class="csc-tile-icon"></i><span class="csc-tile-label">实例卡片</span></div>
+                            <div class="csc-tile-num" id="cscInstNum">–</div>
+                            <div class="tile-pop" id="popInst"></div>
+                        </div>
+                        <div class="csc-tile csc-clickable" id="cscTilePlug" onclick="toggleTilePopover(event, 'plug')" title="点击查看插件清单">
+                            <div class="csc-tile-head"><i data-feather="package" class="csc-tile-icon"></i><span class="csc-tile-label">已安装插件</span></div>
+                            <div class="csc-tile-num" id="cscPlugNum">–</div>
+                            <div class="tile-pop" id="popPlug"></div>
+                        </div>
+                    </div>
+                    <!-- 备份进行中：同高度进度面板整体替换瓦片，不产生布局跳动 -->
+                    <div class="csc-busy" id="cscBusy" style="display: none;">
+                        <div class="csc-busy-head">
+                            <i data-feather="loader" class="csc-busy-icon"></i>
+                            <span id="backupProgressText">正在收集插件与实例配置…</span>
+                        </div>
+                        <div class="backup-progress-bar">
+                            <div class="backup-progress-fill" id="backupProgressFill"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 备份档案列表（时间线 / 卡片 双视图切换） -->
+        <div class="card">
+            <div class="card-header card-header-flex">
+                <h2>备份档案</h2>
+                <div class="view-switch" role="tablist" aria-label="备份视图切换">
+                    <button class="view-switch-btn active" id="viewBtnTimeline" onclick="setBackupView('timeline')" title="时间线视图">
+                        <i data-feather="git-commit" style="width:14px;"></i><span>时间线</span>
+                    </button>
+                    <button class="view-switch-btn" id="viewBtnCards" onclick="setBackupView('cards')" title="卡片视图">
+                        <i data-feather="grid" style="width:14px;"></i><span>卡片</span>
+                    </button>
+                </div>
+            </div>
+            <div id="backupList" style="padding: var(--space-4);">
+                <div class="backup-empty">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 备份详情抽屉（卡片视图点击卡片打开；时间线视图点击节点正文同样打开） -->
+    <div class="bdrawer-overlay" id="bdrawerOverlay" style="display:none;" onclick="closeBackupDrawer()"></div>
+    <aside class="bdrawer" id="backupDrawer" aria-hidden="true">
+        <div class="bdrawer-head">
+            <div class="bdrawer-title-wrap">
+                <span class="bdrawer-kicker">备份详情</span>
+                <h3 class="bdrawer-title" id="bdTitle">–</h3>
+            </div>
+            <button class="bdrawer-close" onclick="closeBackupDrawer()" title="关闭"><i data-feather="x" style="width:18px;"></i></button>
+        </div>
+        <div class="bdrawer-body" id="bdBody">
+            <div class="backup-empty">加载中...</div>
+        </div>
+        <div class="bdrawer-foot" id="bdFoot">
+            <button class="btn btn-primary" onclick="restoreBackupFromDrawer()">恢复</button>
+            <button class="btn btn-secondary" onclick="renameBackupFromDrawer()">重命名</button>
+            <button class="btn btn-danger" onclick="deleteBackupFromDrawer()">删除</button>
+        </div>
+    </aside>
+
+<script>
+function escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showBackupToast(title) {
+    Swal.fire({ toast: true, position: 'top-end', showConfirmButton: false,
+        timer: 2400, timerProgressBar: true, icon: 'success', title });
+}
+
+// --- 当前状态（两张内容瓦片：实例卡片 / 已安装插件） ---
+let currentInstances = [];   // 供实例明细弹层使用
+let currentInstalled = [];   // 供插件清单弹层使用
+
+async function loadCurrentStatus() {
+    try {
+        const [instResp, plugResp] = await Promise.all([
+            fetch('/api/instances'), fetch('/api/plugins')
+        ]);
+        const instancesData = await instResp.json();
+        // _hostname_plugin 是命名插件文件状态（全局一份），不是实例——按实例字段过滤
+        currentInstances = Object.values(instancesData)
+            .filter(i => i && typeof i === 'object' && i.port !== undefined);
+        currentInstalled = ((await plugResp.json()).installed) || [];
+
+        document.getElementById('cscInstNum').textContent = currentInstances.length;
+
+        // 插件瓦片明细按需求留空（数量即信息），完整清单走点击弹层
+        document.getElementById('cscPlugNum').textContent = currentInstalled.length;
+    } catch (err) {
+        document.getElementById('cscInstDetail').textContent = '加载失败';
+        document.getElementById('cscPlugNum').textContent = '–';
+    }
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+// --- 瓦片明细弹层：点击瓦片显示完整清单，点击外部关闭 ---
+function toggleTilePopover(ev, which) {
+    ev.stopPropagation();
+    const pop = document.getElementById(which === 'inst' ? 'popInst' : 'popPlug');
+    const other = document.getElementById(which === 'inst' ? 'popPlug' : 'popInst');
+    if (other) other.classList.remove('open');
+    const opening = !pop.classList.contains('open');
+    pop.classList.toggle('open', opening);
+    if (!opening) return;
+    if (which === 'inst') {
+        pop.innerHTML = currentInstances.length ? currentInstances.map(i => `
+            <div class="tp-row">
+                <span class="tp-name">${escHtml(i.name || '未命名')}</span>
+                <span class="tp-meta">${i.running
+                    ? '<span class="dot dot-run"></span>运行中'
+                    : '<span class="dot dot-stop"></span>已停止'} · ${escHtml(String(i.mode || 'coop'))} · ${escHtml(String(i.port))}</span>
+            </div>`).join('') : '<div class="tp-none">暂无实例</div>';
+    } else {
+        pop.innerHTML = currentInstalled.length ? currentInstalled.map(n =>
+            `<div class="tp-row"><span class="tp-name">${escHtml(n)}</span></div>`).join('')
+            : '<div class="tp-none">暂无已安装插件</div>';
+    }
+}
+
+// 点击瓦片以外区域时关闭所有弹层
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.csc-tile')) {
+        document.querySelectorAll('.tile-pop.open').forEach(p => p.classList.remove('open'));
+    }
+});
+
+// --- 备份档案列表（数据加载一次，双视图共用） ---
+function fmtBackupSize(bytes) {
+    if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + 'GB';
+    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + 'MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + 'KB';
+    return bytes + 'B';
+}
+
+function backupSummary(b) {
+    if (b.instances === null || b.instances === undefined) return '仅插件备份';
+    let text = `${b.instances} 实例 · ${b.plugins ?? '?'} 插件`;
+    return text;
+}
+
+// 备份状态归类：ok = v2 完整；warn = v2 但有缺失文件；v1 = 旧版格式
+function backupStatus(b) {
+    if (b.version === 1) return 'v1';
+    if (typeof b.missing_files === 'number' && b.missing_files > 0) return 'warn';
+    return 'ok';
+}
+
+function relTime(created) {
+    if (!created) return '未知时间';
+    const t = new Date(String(created).replace(' ', 'T'));
+    if (isNaN(t)) return escHtml(created);
+    const diff = (Date.now() - t.getTime()) / 1000;
+    if (diff < 60) return '刚刚';
+    if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+    if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+    if (diff < 86400 * 30) return Math.floor(diff / 86400) + ' 天前';
+    return escHtml(created);
+}
+
+let backupRows = [];
+let backupView = localStorage.getItem('backupViewMode') === 'cards' ? 'cards' : 'timeline';
+let backupViewSwapTimer = null;   // 视图切换动画的防连点计时器
+let backupDrawerName = null;   // 抽屉当前展示的备份名（供抽屉内操作按钮复用）
+
+function setBackupView(mode) {
+    backupView = mode;
+    localStorage.setItem('backupViewMode', mode);
+    document.getElementById('viewBtnTimeline').classList.toggle('active', mode === 'timeline');
+    document.getElementById('viewBtnCards').classList.toggle('active', mode === 'cards');
+    renderBackups(true);
+}
+
+function renderStats(rows) {
+    // 左侧"备份统计"卡：档案数 / 总占用 / 最近备份
+    const totalSize = rows.reduce((s, b) => s + (b.size || 0), 0);
+    const last = rows.length ? rows.map(b => b.created || '').sort().reverse()[0] : '';
+    document.getElementById('statCount').textContent = rows.length;
+    document.getElementById('statSize').textContent = rows.length ? fmtBackupSize(totalSize) : '0B';
+    document.getElementById('statLast').textContent = rows.length ? relTime(last) : '–';
+    document.getElementById('statLast').title = last || '';
+}
+
+function badgeHtml(b) {
+    const st = backupStatus(b);
+    if (st === 'v1') return '<span class="bbadge bbadge-v1">v1 旧版</span>';
+    if (st === 'warn') return `<span class="bbadge bbadge-warn">缺失 ${b.missing_files}</span>`;
+    return '<span class="bbadge bbadge-ok">v2 完整</span>';
+}
+
+function backupActionsHtml(name) {
+    return `<div class="backup-actions">
+        <button class="btn btn-secondary" onclick="event.stopPropagation(); restoreBackup('${escHtml(name)}')">恢复</button>
+        <button class="btn btn-secondary" onclick="event.stopPropagation(); renameBackup('${escHtml(name)}')">重命名</button>
+        <button class="btn btn-danger" onclick="event.stopPropagation(); deleteBackup('${escHtml(name)}')">删除</button>
+    </div>`;
+}
+
+function renderBackups(animate = false) {
+    const list = document.getElementById('backupList');
+    if (!list) return;
+    const doRender = () => {
+        const rows = backupRows;
+        renderStats(rows);
+        if (rows.length === 0) {
+            list.innerHTML = `<div class="backup-empty backup-empty-rich">
+            <i data-feather="archive" style="width:36px; height:36px;"></i>
+            <p>还没有备份</p>
+            <span>点击上方"立即备份"，把当前的实例卡片与已安装插件整体存档</span>
+        </div>`;
+        } else if (backupView === 'timeline') {
+            list.innerHTML = `<div class="btl">` + rows.map(b => `
+            <div class="btl-item st-${backupStatus(b)}">
+                <span class="btl-dot"></span>
+                <div class="btl-body" onclick="openBackupDrawer('${escHtml(b.name)}')" title="查看备份详情">
+                    <div class="btl-head">
+                        <span class="btl-name">${escHtml(b.name.replace(/\.tar\.gz$/, ''))}</span>
+                        ${badgeHtml(b)}
+                        <span class="btl-time" title="${escHtml(b.created || '')}">${relTime(b.created)}</span>
+                    </div>
+                    <div class="btl-meta">
+                        <span>${escHtml(backupSummary(b))}</span>
+                        <span class="btl-dot-sep">·</span>
+                        <span>${fmtBackupSize(b.size)}</span>
+                        <span class="btl-dot-sep">·</span>
+                        <span class="btl-abs">${escHtml(b.created || '')}</span>
+                    </div>
+                    ${backupActionsHtml(b.name)}
+                </div>
+            </div>`).join('') + `</div>`;
+        } else {
+            const maxSize = Math.max(...rows.map(b => b.size || 0), 1);
+            list.innerHTML = `<div class="bcards">` + rows.map(b => `
+            <div class="bcard st-${backupStatus(b)}" onclick="openBackupDrawer('${escHtml(b.name)}')" title="查看备份详情">
+                <div class="bcard-top">${badgeHtml(b)}<span class="bcard-time">${relTime(b.created)}</span></div>
+                <div class="bcard-name" title="${escHtml(b.name)}">${escHtml(b.name.replace(/\.tar\.gz$/, ''))}</div>
+                <div class="bcard-meta">${escHtml(backupSummary(b))}</div>
+                <div class="bcard-bar"><i style="width:${Math.max(6, Math.round((b.size || 0) / maxSize * 100))}%"></i></div>
+                <div class="bcard-size">${fmtBackupSize(b.size)}<span class="bcard-abs">${escHtml(b.created || '')}</span></div>
+            </div>`).join('') + `</div>`;
+        }
+        if (typeof feather !== 'undefined') feather.replace();
+    };
+    // 丝滑切换：旧视图淡出下移 → 换内容 → 新视图淡入上浮；
+    // 计时器防连点竞态，切回来不及完成的上一轮直接作废
+    if (!animate) { doRender(); return; }
+    list.classList.add('view-switching');
+    if (backupViewSwapTimer) clearTimeout(backupViewSwapTimer);
+    backupViewSwapTimer = setTimeout(() => {
+        doRender();
+        requestAnimationFrame(() => list.classList.remove('view-switching'));
+    }, 180);
+}
+
+async function loadBackups() {
+    const list = document.getElementById('backupList');
+    if (!list) return;
+    list.innerHTML = '<div class="backup-empty">加载中...</div>';
+    try {
+        const resp = await fetch('/api/plugins/backups');
+        const data = await resp.json();
+        backupRows = data.backups || [];
+        renderBackups(true);
+    } catch (err) {
+        list.innerHTML = `<div class="backup-empty">加载失败: ${escHtml(err.message)}</div>`;
+    }
+}
+
+// --- 备份详情抽屉 ---
+async function openBackupDrawer(name) {
+    backupDrawerName = name;
+    const drawer = document.getElementById('backupDrawer');
+    const overlay = document.getElementById('bdrawerOverlay');
+    const body = document.getElementById('bdBody');
+    document.getElementById('bdTitle').textContent = name.replace(/\.tar\.gz$/, '');
+    document.getElementById('bdFoot').style.display = 'none';
+    body.innerHTML = '<div class="backup-empty">加载中...</div>';
+    overlay.style.display = 'block';
+    drawer.classList.add('open');
+    drawer.setAttribute('aria-hidden', 'false');
+    try {
+        const resp = await fetch('/api/plugins/backup/detail', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        const d = await resp.json();
+        if (!resp.ok || !d.success) throw new Error(d.error || '无法读取明细');
+        const plugins = d.plugins || [];
+        const missText = d.missing_files > 0
+            ? `<span class="bbadge bbadge-warn">缺失 ${d.missing_files} 个文件</span>` : '';
+        body.innerHTML = `
+            <div class="bd-row"><span class="bd-k">创建时间</span><span class="bd-v">${escHtml(d.created || '未知')}</span></div>
+            <div class="bd-row"><span class="bd-k">文件对账</span><span class="bd-v">清单 ${d.total_files ?? '?'} · 实收 ${d.collected_files ?? '?'} ${missText}</span></div>
+            <div class="bd-sec">实例快照（${d.instances.length}）</div>
+            ${d.instances.length ? `<div class="bd-list">` + d.instances.map(i =>
+                `<div class="bd-li" title="${escHtml(i.name)}"><span class="bd-name">${escHtml(i.name)}</span><span class="bd-count">${escHtml(String(i.mode))} · ${escHtml(String(i.port))}</span></div>`).join('') + `</div>`
+                : `<div class="bd-none">此备份不含实例卡片（仅插件）</div>`}
+            <div class="bd-sec">插件清单（${plugins.length}）</div>
+            ${plugins.length ? `<div class="bd-list bd-scroll">` + plugins.map(p =>
+                `<div class="bd-li" title="${escHtml(p.name)}"><span class="bd-name">${escHtml(p.name)}</span><span class="bd-count">${p.files ?? '?'}<i data-feather="file" class="bd-count-icon"></i></span></div>`).join('') + `</div>`
+                : `<div class="bd-none">无插件信息</div>`}
+        `;
+        document.getElementById('bdFoot').style.display = 'flex';
+    } catch (err) {
+        body.innerHTML = `<div class="backup-empty">${escHtml(err.message)}</div>`;
+    }
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function closeBackupDrawer() {
+    const drawer = document.getElementById('backupDrawer');
+    drawer.classList.remove('open');
+    drawer.setAttribute('aria-hidden', 'true');
+    document.getElementById('bdrawerOverlay').style.display = 'none';
+    backupDrawerName = null;
+}
+
+function renameBackupFromDrawer() { if (backupDrawerName) renameBackup(backupDrawerName); }
+function deleteBackupFromDrawer() { if (backupDrawerName) deleteBackup(backupDrawerName); }
+function restoreBackupFromDrawer() { if (backupDrawerName) restoreBackup(backupDrawerName); }
+
+// --- 备份异步启动 + 进度轮询（collect 流动动画 / compress 百分比 / done·error 结果） ---
+let backupProgressTimer = null;
+let backupLastStage = '';
+
+function setBackupProgress(stage, percent) {
+    const tiles = document.getElementById('cscTiles');
+    const busy = document.getElementById('cscBusy');
+    const fill = document.getElementById('backupProgressFill');
+    const text = document.getElementById('backupProgressText');
+    const btn = document.getElementById('doBackupBtn');
+    const btnLabel = btn ? btn.querySelector('.do-backup-label') : null;
+    if (!busy || !fill || !text) return;
+    const isBusy = (stage === 'collect' || stage === 'compress');
+    // 同高度进度面板整体替换瓦片：进行中/空闲切换均无布局跳动
+    if (tiles) tiles.style.display = isBusy ? 'none' : 'grid';
+    busy.style.display = isBusy ? 'flex' : 'none';
+    if (btn) { btn.classList.toggle('is-busy', isBusy); btn.disabled = isBusy; }
+    if (btnLabel) btnLabel.textContent = isBusy
+        ? (stage === 'collect' ? '正在收集…' : `正在压缩 ${Math.max(0, Math.min(100, percent ?? 0))}%`)
+        : '立即备份';
+    if (!isBusy) return;
+    if (stage === 'collect') {
+        fill.classList.add('indeterminate');
+        fill.style.width = '100%';
+        text.textContent = '正在收集插件与实例配置…';
+    } else {
+        fill.classList.remove('indeterminate');
+        const p = Math.max(0, Math.min(100, percent ?? 0));
+        fill.style.width = p + '%';
+        text.textContent = `正在压缩打包… ${p}%`;
+    }
+}
+
+async function pollBackupProgress() {
+    const btn = document.getElementById('doBackupBtn');
+    try {
+        const resp = await fetch('/api/plugins/backup/progress');
+        const data = await resp.json();
+        const stage = data.stage;
+        if (stage === 'done') {
+            if (backupLastStage !== 'done') {
+                backupLastStage = 'done';
+                const r = data.result || {};
+                loadBackups();
+                if (r.missing > 0) {
+                    // 清单里有、服务器上已不存在的文件：备份仍然可用，但需知情
+                    Swal.fire('备份完成，但有缺失',
+                        `${r.plugins ?? '?'} 个插件已备份，其中 ${r.missing} 个文件在服务器上已不存在，未能收入归档。`,
+                        'warning').then(() => promptBackupRename(r.name));
+                } else {
+                    promptBackupRename(r.name);
+                }
+            }
+            setBackupProgress('idle');
+            return;
+        }
+        if (stage === 'error') {
+            if (backupLastStage !== 'error') {
+                backupLastStage = 'error';
+                Swal.fire('失败!', data.message || '备份失败', 'error');
+                loadBackups();
+            }
+            setBackupProgress('idle');
+            return;
+        }
+        setBackupProgress(stage, data.percent);
+        backupLastStage = stage;
+    } catch (err) { /* 轮询失败保持现状，下轮重试 */ }
+}
+
+function startBackupProgressPolling() {
+    if (backupProgressTimer) return;
+    pollBackupProgress();
+    backupProgressTimer = setInterval(pollBackupProgress, 500);
+}
+
+// 备份完成后的命名引导：留空/取消 = 保留默认时间戳名，填写 = 调用重命名接口
+// 新名规则与后端 RE_BACKUP_NEW_NAME 一致：1-64 字符，中文/字母/数字/下划线/连字符
+const RE_BACKUP_NEW_NAME_JS = /^[A-Za-z0-9_\u4e00-\u9fa5-]{1,64}$/;
+
+function promptBackupRename(archiveName) {
+    if (!archiveName) { showBackupToast('备份完成'); return; }
+    const defaultName = archiveName.replace(/\.tar\.gz$/, '');
+    Swal.fire({
+        title: '备份完成',
+        input: 'text',
+        inputLabel: '备份包名称（支持中文/字母/数字/下划线/连字符）',
+        showCancelButton: true,
+        confirmButtonText: '保存命名',
+        cancelButtonText: '使用默认名',
+        allowOutsideClick: false,
+        inputValidator: (v) => {
+            const val = (v || '').trim();
+            if (val && !RE_BACKUP_NEW_NAME_JS.test(val)) return '名称限 1-64 字符，可用中文/字母/数字/下划线/连字符';
+            return null;   // null = 合法；留空也放行（走默认名）
+        }
+    }).then(async (result) => {
+        const newName = result.isConfirmed ? (result.value || '').trim() : '';
+        if (!result.isConfirmed || !newName || newName === defaultName) {
+            showBackupToast(`已使用默认名：${defaultName}`);
+            loadBackups();
+            return;
+        }
+        try {
+            const resp = await fetch('/api/plugins/backup/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: archiveName, new_name: newName })
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.success) throw new Error(data.message || '命名失败');
+            showBackupToast(`已命名为：${newName}`);
+        } catch (err) {
+            // 命名失败不打扰流程：备份保留默认名，错误原样告知
+            Swal.fire('命名失败', `${escHtml(err.message)}。备份保留默认名：${escHtml(defaultName)}`, 'error');
+        }
+        loadBackups();
+    });
+}
+
+async function doBackup() {
+    try {
+        const resp = await fetch('/api/plugins/backup', { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.success) {
+            Swal.fire('无法开始', data.message || '备份未能启动', 'error');
+        }
+    } catch (err) {
+        Swal.fire('失败!', err.message, 'error');
+    }
+}
+
+// --- 恢复 / 重命名 / 删除 ---
+async function restoreBackup(name) {
+    closeBackupDrawer();
+    // 强确认：先取当前安装数与备份的插件数，把"将发生什么"逐条摆出来
+    let installedNow = '?';
+    try {
+        const resp = await fetch('/api/plugins');
+        installedNow = ((await resp.json()).installed || []).length;
+    } catch (err) { /* 拿不到就显示 ? */ }
+    const row = backupRows.find(b => b.name === name);
+    const backupPlugins = row ? (row.plugins ?? '?') : '?';
+    const result = await Swal.fire({
+        title: '确认恢复这份备份?',
+        html: `
+            <div style="text-align:left; font-size:13.5px; line-height:1.8;">
+                <div style="margin-bottom:8px;">接下来会发生什么：</div>
+                <div class="restore-steps">
+                    <div class="rstep">
+                        <span class="rstep-num">1</span>
+                        <div class="rstep-body">
+                            <div class="rstep-title">卸载当前已安装的插件</div>
+                            <div class="rstep-desc">强制卸载当前全部 <b>${escHtml(String(installedNow))}</b> 个已安装插件</div>
+                        </div>
+                    </div>
+                    <div class="rstep">
+                        <span class="rstep-num">2</span>
+                        <div class="rstep-body">
+                            <div class="rstep-title">安装备份包中插件文件</div>
+                            <div class="rstep-desc">归位备份中的 <b>${escHtml(String(backupPlugins))}</b> 个插件文件</div>
+                        </div>
+                    </div>
+                    <div class="rstep">
+                        <span class="rstep-num">3</span>
+                        <div class="rstep-body">
+                            <div class="rstep-title">覆盖当前所有实例卡片</div>
+                            <div class="rstep-desc">实例卡片整组替换为备份时的快照</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="restore-info"><i data-feather="info" class="restore-info-icon"></i><span>有实例正在运行时无法恢复（需先停止），此操作不可撤销</span></div>
+            </div>`,
+        didOpen: () => { if (typeof feather !== 'undefined') feather.replace(); },
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '我已知晓，开始恢复',
+        cancelButtonText: '取消',
+        focusCancel: true,
+        confirmButtonColor: 'var(--status-danger)'
+    });
+    if (!result.isConfirmed) return;
+    Swal.fire({ title: '正在恢复...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    try {
+        const resp = await fetch('/api/plugins/backup/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.success) throw new Error(data.message || data.error || '恢复失败');
+        const removed = data.removed ?? 0;
+        Swal.fire('恢复完成',
+            `已卸载现有 ${removed} 个插件，恢复 ${data.restored} 个插件，实例卡片已切换`, 'success');
+        loadBackups();
+        loadCurrentStatus();
+    } catch (err) {
+        Swal.fire('失败!', err.message, 'error');
+    }
+}
+
+async function renameBackup(name) {
+    closeBackupDrawer();
+    const result = await Swal.fire({
+        title: '重命名备份',
+        input: 'text',
+        inputLabel: '新名称（用于日后辨认备份内容，留空保持原样）',
+        showCancelButton: true,
+        confirmButtonText: '重命名',
+        cancelButtonText: '取消'
+    });
+    if (!result.isConfirmed || !result.value) return;
+    try {
+        const resp = await fetch('/api/plugins/backup/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, new_name: result.value })
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.success) throw new Error(data.message || data.error || '重命名失败');
+        showBackupToast('备份已重命名');
+        loadBackups();
+    } catch (err) {
+        Swal.fire('失败!', err.message, 'error');
+    }
+}
+
+async function deleteBackup(name) {
+    closeBackupDrawer();
+    const result = await Swal.fire({
+        title: '删除这份备份?',
+        html: `<b>${escHtml(name)}</b> 删除后无法找回。`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        confirmButtonColor: 'var(--status-danger)'
+    });
+    if (!result.isConfirmed) return;
+    try {
+        const resp = await fetch('/api/plugins/backup/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.success) throw new Error(data.message || data.error || '删除失败');
+        showBackupToast('备份已删除');
+        loadBackups();
+    } catch (err) {
+        Swal.fire('失败!', err.message, 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('viewBtnTimeline').classList.toggle('active', backupView === 'timeline');
+    document.getElementById('viewBtnCards').classList.toggle('active', backupView === 'cards');
+    feather.replace();
+    loadCurrentStatus();
+    loadBackups();
+    startBackupProgressPolling();   // 页面常驻轮询：他人发起的备份结束也能即时看到结果
+});
+</script>
+
+</body>
+</html>

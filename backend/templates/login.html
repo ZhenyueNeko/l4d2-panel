@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - L4D2 管理面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-body">
+    <div class="login-wrapper">
+        <div class="login-container">
+            <button type="button" id="themeToggle" class="theme-toggle-login" aria-label="切换主题">
+                <i data-feather="sun" class="icon-sun"></i>
+                <i data-feather="moon" class="icon-moon"></i>
+            </button>
+            <img src="{{ url_for('static', filename='login_logo.png') }}" alt="L4D2 管理面板" class="login-logo">
+            <form method="post">
+                <div class="form-group">
+                    <label for="username" class="form-label">用户名</label>
+                    <input type="text" id="username" name="username" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label for="password" class="form-label">密码</label>
+                    <input type="password" id="password" name="password" class="form-input" required>
+                </div>
+                <button type="submit" class="btn btn-primary">登 录</button>
+            </form>
+            {% if error %}
+                <p class="error">{{ error }}</p>
+            {% endif %}
+        </div>
+    </div>
+    <script>document.addEventListener('DOMContentLoaded', () => feather.replace());</script>
+</body>
+</html>

@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实例管理 - L4D2 管理面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+
+    {% include 'sidebar.html' %}
+
+    <div class="main-container">
+        <header class="page-header">
+            <div>
+                <h1>实例管理</h1>
+                <p>在线新增、编辑和启动服务器实例</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="openInstanceForm()">
+                    <i data-feather="plus" style="width:16px;"></i><span>新增实例</span>
+                </button>
+                <button class="btn btn-secondary" onclick="openGlobalSettings()" title="RCON 密码与 Steam Key（面板全局配置）">
+                    <i data-feather="settings" style="width:16px;"></i><span>全局设置</span>
+                </button>
+                <!-- 刷新按钮已移除：refreshInstances 每 10 秒自动执行，所有实例操作后也会即时刷新 -->
+            </div>
+        </header>
+
+        <div class="instances-duo">
+            <div class="card carousel-col">
+                <div class="card-header">
+                    <h2>服务器实例</h2>
+                </div>
+                <div id="instanceCarousel" class="carousel-body">
+                    <div>加载中...</div>
+                </div>
+                <div class="carousel-footer">
+                    <div id="carouselDots" class="carousel-dots"></div>
+                    <div class="carousel-arrows">
+                        <button class="carousel-arrow" onclick="carouselMove(-1)" title="上一个实例"><i data-feather="chevron-left"></i></button>
+                        <button class="carousel-arrow" onclick="carouselMove(1)" title="下一个实例"><i data-feather="chevron-right"></i></button>
+                    </div>
+                </div>
+                <p class="carousel-note">
+                    <i data-feather="info" style="width:14px; height:14px; vertical-align: -2px;"></i>
+                    启动前请确保已通过"文件管理"页完成服务器部署
+                </p>
+            </div>
+            <div class="card players-col">
+                <div class="card-header players-header">
+                    <h2>在线玩家 (<span id="playersCount">0</span>人)</h2>
+                </div>
+                <div id="playersBody" class="players-body">
+                    <div class="players-empty">选择左侧实例后自动查询。</div>
+                </div>
+                <div class="players-footer">
+                    <button class="btn btn-secondary" style="width:100%;" onclick="querySelectedPlayers(true)">重新查询</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    feather.replace();
+    refreshInstances();
+    setInterval(refreshInstances, 10000);
+});
+
+let instancesData = {};
+
+// 右上角滑入的提示（自动消失，不打断操作流）
+function showToast(title, icon = 'success') {
+    Swal.fire({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2400,
+        timerProgressBar: true,
+        icon: icon,
+        title: title
+    });
+}
+
+// 剪贴板兼容降级：navigator.clipboard 仅在 HTTPS/localhost 可用，
+// 面板常以 http://公网IP 访问，此时退回 execCommand 方案
+function legacyCopyText(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    if (!ok) throw new Error('execCommand copy failed');
+}
+
+// 点击连接地址条：复制 IP:端口，图标短暂变对勾并弹提示
+window.copyConnectAddr = function (addr, bar) {
+    const done = () => {
+        showToast('服务器IP已复制');
+        const icon = bar.querySelector('.connect-copy');
+        if (!icon) return;
+        if (!icon.dataset.origin) icon.dataset.origin = icon.innerHTML;
+        icon.innerHTML = '<i data-feather="check"></i>';
+        icon.classList.add('copied');
+        feather.replace();
+        clearTimeout(icon._revertTimer);
+        icon._revertTimer = setTimeout(() => {
+            icon.innerHTML = icon.dataset.origin;
+            icon.classList.remove('copied');
+            feather.replace();
+        }, 1600);
+    };
+    const fail = () => showToast('复制失败，请手动选择地址复制', 'error');
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(addr).then(done, () => {
+            try { legacyCopyText(addr); done(); } catch (err) { fail(); }
+        });
+    } else {
+        try { legacyCopyText(addr); done(); } catch (err) { fail(); }
+    }
+};
+
+// 复制玩家 SteamID（与连接地址条同一套剪贴板降级方案；图标短暂变对勾）
+window.copySteamid = function (text, btn) {
+    const done = () => {
+        showToast('SteamID 已复制');
+        if (!btn.dataset.origin) btn.dataset.origin = btn.innerHTML;
+        btn.innerHTML = '<i data-feather="check"></i>';
+        btn.classList.add('copied');
+        feather.replace();
+        clearTimeout(btn._revertTimer);
+        btn._revertTimer = setTimeout(() => {
+            btn.innerHTML = btn.dataset.origin;
+            btn.classList.remove('copied');
+            feather.replace();
+        }, 1600);
+    };
+    const fail = () => showToast('复制失败，请手动选择复制', 'error');
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, () => {
+            try { legacyCopyText(text); done(); } catch (err) { fail(); }
+        });
+    } else {
+        try { legacyCopyText(text); done(); } catch (err) { fail(); }
+    }
+};
+
+// 官方战役/生存地图清单（c1-c14，含 Last Stand）
+const MAP_LIST = [
+    'c1m1_hotel', 'c1m2_streets', 'c1m3_mall', 'c1m4_atrium',
+    'c2m1_highway', 'c2m2_fairgrounds', 'c2m3_coaster', 'c2m4_barns', 'c2m5_concert',
+    'c3m1_plankcountry', 'c3m2_swamp', 'c3m3_shantytown', 'c3m4_plantation',
+    'c4m1_milltown_a', 'c4m2_sugarmill_a', 'c4m3_sugarmill_b', 'c4m4_milltown_b', 'c4m5_milltown_escape',
+    'c5m1_waterfront', 'c5m2_park', 'c5m3_cemetery', 'c5m4_quarter', 'c5m5_bridge',
+    'c6m1_riverbank', 'c6m2_bedlam', 'c6m3_port',
+    'c7m1_docks', 'c7m2_barge', 'c7m3_port',
+    'c8m1_apartment', 'c8m2_subway', 'c8m3_sewers', 'c8m4_interior', 'c8m5_rooftop',
+    'c9m1_alleys', 'c9m2_lots',
+    'c10m1_caves', 'c10m2_drainage', 'c10m3_ranchhouse', 'c10m4_mainstreet', 'c10m5_houseboat',
+    'c11m1_greenhouse', 'c11m2_offices', 'c11m3_garage', 'c11m4_terminal', 'c11m5_runway',
+    'c12m1_hilltop', 'c12m2_traintunnel', 'c12m3_bridge', 'c12m4_barn', 'c12m5_cornfield',
+    'c13m1_alpinecreek', 'c13m2_southpinestream', 'c13m3_memorialbridge', 'c13m4_cutthroatcreek',
+    'c14m1_junkyard', 'c14m2_lighthouse',
+];
+
+// 新建实例的默认启动参数
+// （-strictportbind/-nobreakpad/-noassert 三项由后端启动时自动追加，无需在此填写）
+const DEFAULT_PARAMS = '+sv_setmax 31';
+
+// 各战役（c1–c14）中文名，用于地图选择器右侧"战役"列展示与搜索（译名来源：整理的官方地图中文名对照表）
+const CAMPAIGN_NAMES = {
+    c1: '死亡中心', c2: '黑色狂欢节', c3: '沼泽激战', c4: '暴风骤雨', c5: '教区',
+    c6: '短暂时刻', c7: '牺牲', c8: '毫不留情', c9: '坠机险途', c10: '死亡丧钟',
+    c11: '静寂时分', c12: '血腥收获', c13: '刺骨寒溪', c14: '临死一搏',
+};
+// 每张官方地图的小节中文名（来源同上），用于右侧"小节"列展示与搜索
+const SECTION_NAMES = {
+    c1m1_hotel: '旅馆', c1m2_streets: '街道', c1m3_mall: '购物中心', c1m4_atrium: '中厅',
+    c2m1_highway: '高速公路', c2m2_fairgrounds: '游乐场', c2m3_coaster: '过山车', c2m4_barns: '谷仓', c2m5_concert: '音乐会',
+    c3m1_plankcountry: '乡村', c3m2_swamp: '沼泽', c3m3_shantytown: '贫民窟', c3m4_plantation: '种植园',
+    c4m1_milltown_a: '密尔城', c4m2_sugarmill_a: '糖厂', c4m3_sugarmill_b: '逃离工厂', c4m4_milltown_b: '重返小镇', c4m5_milltown_escape: '逃离小镇',
+    c5m1_waterfront: '码头', c5m2_park: '公园', c5m3_cemetery: '墓地', c5m4_quarter: '特区', c5m5_bridge: '桥',
+    c6m1_riverbank: '河畔', c6m2_bedlam: '地下通道', c6m3_port: '港口',
+    c7m1_docks: '码头', c7m2_barge: '驳船', c7m3_port: '港口',
+    c8m1_apartment: '公寓', c8m2_subway: '地铁', c8m3_sewers: '下水道', c8m4_interior: '医院', c8m5_rooftop: '屋顶',
+    c9m1_alleys: '小巷', c9m2_lots: '卡车停车场',
+    c10m1_caves: '收费公路', c10m2_drainage: '水沟', c10m3_ranchhouse: '教堂', c10m4_mainstreet: '小镇', c10m5_houseboat: '码头',
+    c11m1_greenhouse: '花房', c11m2_offices: '起重机', c11m3_garage: '建筑工地', c11m4_terminal: '航空机场', c11m5_runway: '飞机跑道',
+    c12m1_hilltop: '森林', c12m2_traintunnel: '隧道', c12m3_bridge: '桥', c12m4_barn: '火车站', c12m5_cornfield: '农舍',
+    c13m1_alpinecreek: '高山小溪', c13m2_southpinestream: '松木之河', c13m3_memorialbridge: '纪念大桥', c13m4_cutthroatcreek: '残酷溪流',
+    c14m1_junkyard: '废物场', c14m2_lighthouse: '灯塔终章',
+};
+const campaignOf = (map) => CAMPAIGN_NAMES[map.slice(0, map.indexOf('m'))] || '';
+const sectionOf = (map) => SECTION_NAMES[map] || '';
+
+// script 记录的是原始终端流，可能夹杂光标定位等 ANSI 转义序列（srcds 控制台重绘输入行时产生），
+// 展示前统一剔除，只留纯文本；跨包截断的残缺序列最多残留个别字符，可忽略
+const stripAnsi = (text) => String(text ?? '')
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+    .replace(/\x1b[()][0-9A-B]/g, '');
+
+async function fetchJson(url) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+    }
+    return response.json();
+}
+
+function escapeHtml(unsafe) {
+    return String(unsafe ?? '')
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+
+let instanceIds = [];
+let currentIdx = 0;
+
+// --- 实例卡片轮播：单卡渲染 + 左右箭头/圆点切换（选中实例联动右侧在线玩家卡） ---
+function renderCarousel() {
+    const el = document.getElementById('instanceCarousel');
+    const dots = document.getElementById('carouselDots');
+    if (instanceIds.length === 0) {
+        el.innerHTML = '<div>还没有实例，点击右上角"新增实例"创建第一个。</div>';
+        dots.innerHTML = '';
+        feather.replace();
+        return;
+    }
+    if (currentIdx >= instanceIds.length) currentIdx = instanceIds.length - 1;
+    const id = instanceIds[currentIdx];
+    const inst = instancesData[id];
+    const displayName = inst.name || id;
+    // 面板与游戏服同机部署：访问面板所用的主机名 + 实例端口即真实连接地址
+    const connectAddr = `${window.location.hostname}:${inst.port}`;
+    el.innerHTML = `
+        <div class="instance-header">
+            <span class="status-dot ${inst.running ? 'running' : 'stopped'}"></span>
+            <h3 class="instance-name">${escapeHtml(displayName)}</h3>
+            <span class="instance-state ${inst.running ? 'ok' : ''}">${inst.running ? '运行中' : '已停止'}</span>
+        </div>
+        <div class="metric-kv">
+            <span class="k">端口:</span>
+            <span class="v">${escapeHtml(String(inst.port))}</span>
+        </div>
+        <div class="metric-kv">
+            <span class="k">初始地图:</span>
+            <span class="v">${escapeHtml(inst.map)}</span>
+        </div>
+        <div class="metric-kv">
+            <span class="k">游戏模式:</span>
+            <span class="v">${escapeHtml(inst.mode || 'coop')}</span>
+        </div>
+        <div class="metric-kv">
+            <span class="k">tickrate:</span>
+            <span class="v">${escapeHtml(String(inst.tickrate))}</span>
+        </div>
+        ${inst.extra_params ? `
+        <div class="metric-kv">
+            <span class="k">额外参数:</span>
+            <span class="v">${escapeHtml(inst.extra_params)}</span>
+        </div>` : ''}
+        <div class="connect-bar" title="点击复制连接地址" onclick="copyConnectAddr('${escapeHtml(connectAddr)}', this)">
+            <span class="connect-addr">${escapeHtml(connectAddr)}</span>
+            <span class="connect-copy"><i data-feather="copy"></i></span>
+        </div>
+        <div class="instance-actions">
+            ${!inst.running
+                ? `<button class="btn btn-secondary" onclick="handleAction('start_instance', '${escapeHtml(id)}', '${escapeHtml(displayName)}')">
+                    <i data-feather="play" style="width:14px;"></i><span>启动</span>
+                  </button>`
+                : `<button class="btn btn-danger" onclick="handleAction('stop_instance', '${escapeHtml(id)}', '${escapeHtml(displayName)}')">
+                    <i data-feather="square" style="width:14px;"></i><span>停止</span>
+                  </button>`}
+            ${inst.running
+                ? `<button class="btn btn-secondary" onclick="openConsole('${escapeHtml(id)}', '${escapeHtml(displayName)}')" title="终端">
+                    <i data-feather="terminal" style="width:14px;"></i><span>终端</span>
+                  </button>`
+                : `<button class="btn btn-secondary" disabled title="实例未运行，无法打开终端">
+                    <i data-feather="terminal" style="width:14px;"></i><span>终端</span>
+                  </button>`}
+            ${inst.running
+                ? `<button class="btn btn-secondary" disabled title="实例运行中，请先停止再编辑">
+                    <i data-feather="edit-2" style="width:14px;"></i><span>编辑</span>
+                  </button>`
+                : `<button class="btn btn-secondary" onclick="openInstanceForm('${escapeHtml(id)}')" title="编辑">
+                    <i data-feather="edit-2" style="width:14px;"></i><span>编辑</span>
+                  </button>`}
+            ${inst.running
+                ? `<button class="btn btn-secondary" disabled title="实例运行中，请停止再删除">
+                    <i data-feather="trash-2" style="width:14px;"></i><span>删除</span>
+                  </button>`
+                : `<button class="btn btn-secondary" onclick="deleteInstance('${escapeHtml(id)}', '${escapeHtml(displayName)}')" title="删除">
+                    <i data-feather="trash-2" style="width:14px;"></i><span>删除</span>
+                  </button>`}
+        </div>
+    `;
+    // 切换指示圆点仅在有多个实例时显示：单实例没有切换语义，不必占位
+    dots.innerHTML = instanceIds.length > 1 ? instanceIds.map((_, i) =>
+        `<span class="dot${i === currentIdx ? ' active' : ''}" title="${escapeHtml(instancesData[instanceIds[i]].name || instanceIds[i])}" onclick="carouselJump(${i})"></span>`).join('') : '';
+    feather.replace();
+}
+
+function carouselMove(delta) {
+    if (!instanceIds.length) return;
+    const target = (currentIdx + delta + instanceIds.length) % instanceIds.length;
+    if (target === currentIdx) { renderCarousel(); return; }   // 单实例循环切换：仅刷新不动画
+    carouselSwitch(target, delta >= 0 ? 1 : -1);
+}
+
+function carouselJump(idx) {
+    if (idx === currentIdx) return;
+    carouselSwitch(idx, idx > currentIdx ? 1 : -1);
+}
+
+// 卡片切换动画：旧内容按方向退场（140ms）→ 重建 → 新内容反向入场（200ms），纯 CSS。
+// 动画进行中忽略连点，防止时序错乱；系统开启"减少动态效果"时直接切换
+function carouselSwitch(targetIdx, direction) {
+    const el = document.getElementById('instanceCarousel');
+    currentIdx = targetIdx;
+    querySelectedPlayers(true);
+    const reduceMotion = window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion || !el.childElementCount || el.dataset.animating === '1') {
+        renderCarousel();
+        return;
+    }
+    el.dataset.animating = '1';
+    el.classList.add(direction >= 0 ? 'carousel-exit-left' : 'carousel-exit-right');
+    setTimeout(() => {
+        el.classList.remove('carousel-exit-left', 'carousel-exit-right');
+        renderCarousel();
+        el.classList.add(direction >= 0 ? 'carousel-enter-right' : 'carousel-enter-left');
+        setTimeout(() => {
+            el.classList.remove('carousel-enter-right', 'carousel-enter-left');
+            delete el.dataset.animating;
+        }, 220);
+    }, 150);
+}
+
+// --- 在线玩家卡：status 详情增强 / A2S 回退，渲染玩家卡片列表 ---
+let lastPlayersData = null;   // 最近一次成功查询结果（供 BOT 开关等就地重绘场景备用）
+
+// 默认头像图：面板自带（static/default_avatar.png），Steam 头像解析成功前的底层头像
+const DEFAULT_AVATAR_URL = '{{ url_for("static", filename="default_avatar.png") }}';
+
+// RCON 通道状态条：detect（server.cfg 有密码的指引）/ 认证失败 / 退避中 时
+// 置于玩家列表顶部（认证失败会暂停自动重试，避免触发服务器的 RCON 封禁）
+function rconNoticeHtml(data) {
+    const rcon = data && data.rcon;
+    if (!rcon) return '';
+    const supported = ['detect', 'auth_failed', 'backoff'];
+    if (!supported.includes(rcon.state)) return '';
+    const retry = (rcon.state === 'backoff' && rcon.retry_after)
+        ? `（约 ${Math.ceil(rcon.retry_after / 60)} 分钟后自动重试）` : '';
+    return `<div class="pnotice">ℹ ${escapeHtml(rcon.hint || '')}${escapeHtml(retry)}</div>`;
+}
+
+function renderPlayers(data) {
+    const body = document.getElementById('playersBody');
+    const countEl = document.getElementById('playersCount');
+    const players = data.players || [];
+    countEl.textContent = String(data.count ?? players.length);
+    const visible = players;   // 按服务器上报原样展示：人类玩家 + 带 BOT 徽标的机器人
+    const notice = rconNoticeHtml(data);
+    if (visible.length === 0) {
+        body.innerHTML = notice + '<div class="players-empty">服务器运行中，当前没有玩家在线。</div>';
+        return;
+    }
+    // status 增强行：一人一卡、双行信息——头像(默认图) / 名字+ID / 地区(上，纯文本) +
+    // STEAMID(下，附一键复制) / ping / 连接时长。A2S 回退行退化为 名字 + 时长 的简洁布局
+    body.innerHTML = notice + visible.map(p => {
+        // 头像底层固定放默认头像图（圆形容器 + object-fit 裁剪），Steam 头像解析
+        // 成功后由 loadPlayerAvatars 追加同名覆盖层盖在其上；有 SteamID64 时整圆
+        // 为可点击链接（新标签页打开 Steam 资料页），否则纯展示
+        const avatarImg = `<img class="pavatar-img pavatar-default" src="${DEFAULT_AVATAR_URL}" alt="">`;
+        const avatarCell = p.steamid64
+            ? `<a class="pavatar avatar-link" href="https://steamcommunity.com/profiles/${encodeURIComponent(p.steamid64)}"
+                  target="_blank" rel="noopener" title="打开 Steam 资料页"
+                  aria-label="打开 ${escapeHtml(p.name)} 的 Steam 资料页"
+                  data-id64="${p.steamid64}">${avatarImg}</a>`
+            : `<span class="pavatar" aria-hidden="true">${avatarImg}</span>`;
+        if (p.userid === undefined) {
+            // A2S 回退数据：无 userid/SteamID/ping 字段（RCON 不可用的兜底），渲染简洁卡避免 undefined
+            return `
+            <div class="player-row enhanced">
+                <span class="pavatar" aria-hidden="true">${avatarImg}</span>
+                <div class="pcol pcol-main">
+                    <span class="pname" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
+                    <span class="psub"><span class="plabel">ID</span> --</span>
+                </div>
+                <span class="ptime" title="已连接时长"><i data-feather="clock"></i>${escapeHtml(p.duration_text || '--')}</span>
+            </div>`;
+        }
+        const steamCell = p.steamid
+            ? `<span class="psteamid">${escapeHtml(p.steamid)}</span>
+               <button type="button" class="pcopy-btn" title="复制 SteamID" onclick="copySteamid('${escapeHtml(p.steamid)}', this)">
+                   <i data-feather="copy"></i>
+               </button>`
+            : '<span class="psteamid">--</span>';
+        const regionCell = p.region
+            ? `<span class="pgeo">${escapeHtml(p.region)}</span>`
+            : '<span class="pgeo">--</span>';
+        return `
+            <div class="player-row enhanced">
+                ${avatarCell}
+                <div class="pcol pcol-main">
+                    <span class="pname" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
+                    <span class="psub"><span class="plabel">ID</span> #${escapeHtml(String(p.userid))}</span>
+                </div>
+                <div class="pcol pcol-geo">
+                    <span class="pline">${regionCell}</span>
+                    <span class="pline"><span class="plabel">STEAMID</span> ${steamCell}</span>
+                </div>
+                <span class="pping" title="延迟"><i data-feather="wifi"></i>${escapeHtml(String(p.ping))}ms</span>
+                <span class="ptime" title="已连接时长"><i data-feather="clock"></i>${escapeHtml(p.duration_text || '--')}</span>
+            </div>`;
+    }).join('');
+    if (typeof feather !== 'undefined') feather.replace();
+    loadPlayerAvatars();
+}
+
+// Steam 头像：批量请求解析接口，命中则以 <img> 覆盖默认头像图；
+// 任何失败（未配置 Key/接口失败/图片损坏）静默保持默认头像图
+async function loadPlayerAvatars() {
+    const spans = document.querySelectorAll('#playersBody .pavatar[data-id64]');
+    const ids = [...new Set(Array.from(spans)
+        .map(s => s.dataset.id64)
+        .filter(v => v && /^\d{17}$/.test(v)))];
+    if (!ids.length) return;
+    try {
+        const resp = await fetch('/api/players/avatars?ids=' + encodeURIComponent(ids.join(',')));
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const map = data.avatars || {};
+        for (const span of spans) {
+            const url = map[span.dataset.id64];
+            if (!url || span.querySelector('.pavatar-img:not(.pavatar-default)')) continue;
+            const img = document.createElement('img');
+            img.className = 'pavatar-img';
+            img.alt = '';
+            img.src = url;
+            img.addEventListener('error', () => img.remove());   // 图片损坏 → 露出默认头像图
+            span.appendChild(img);
+        }
+    } catch (err) { /* 静默回退 */ }
+}
+
+async function querySelectedPlayers(showLoading) {
+    const body = document.getElementById('playersBody');
+    const countEl = document.getElementById('playersCount');
+    if (!instanceIds.length) {
+        body.innerHTML = '<div class="players-empty">暂无实例，请先在左侧创建。</div>';
+        countEl.textContent = '0';
+        return;
+    }
+    const id = instanceIds[currentIdx];
+    if (showLoading) body.innerHTML = '<div class="players-empty">正在查询...</div>';
+    let data;
+    try {
+        const response = await fetch('/api/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'players', payload: id })
+        });
+        data = await response.json();
+        if (!response.ok && !data.message) throw new Error(`HTTP ${response.status}`);
+    } catch (err) {
+        body.innerHTML = `<div class="players-empty">查询失败: ${escapeHtml(err.message)}</div>`;
+        return;
+    }
+    if (!data.success) {
+        countEl.textContent = '0';
+        body.innerHTML = `<div class="players-empty">${escapeHtml(data.message || '暂无玩家数据')}</div>`;
+        return;
+    }
+    lastPlayersData = data;
+    renderPlayers(data);
+}
+
+async function refreshInstances() {
+    try {
+        instancesData = await fetchJson('/api/instances');
+        // '_hostname_plugin' 是服务器命名插件的文件状态（全局一份），不是实例
+        instanceIds = Object.keys(instancesData).filter(k => k !== '_hostname_plugin');
+        if (currentIdx >= instanceIds.length) {
+            currentIdx = Math.max(0, instanceIds.length - 1);
+        }
+        renderCarousel();
+        querySelectedPlayers(false);
+    } catch (err) {
+        console.error("无法获取实例列表:", err);
+        document.getElementById('instanceCarousel').innerHTML = '<div>加载实例列表失败。</div>';
+    } finally {
+        feather.replace();
+    }
+}
+
+// payload 为内部实例 ID；displayName 仅用于确认弹窗展示
+window.handleAction = async function(action, payload, displayName) {
+    const actionText = action === 'start_instance' ? '启动' : '停止';
+    const result = await Swal.fire({
+        title: `确认操作`,
+        text: `你确定要${actionText}实例 "${displayName || payload}" 吗?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '是的, 执行!',
+        cancelButtonText: '取消',
+        confirmButtonColor: action === 'stop_instance' ? 'var(--status-danger)' : 'var(--brand-accent)'
+    });
+    if (!result.isConfirmed) return;
+
+    Swal.fire({ title: '正在处理...', text: '停止实例时面板会等待服务器安全退出，请稍候...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+    try {
+        const response = await fetch('/api/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, payload })
+        });
+        const resData = await response.json();
+        if (!response.ok || !resData.success) {
+            throw new Error(resData.message || '操作失败');
+        }
+        if (action === 'start_instance') {
+            // 启动成功后自动弹出该实例的终端，便于立即查看运行日志
+            openConsole(payload, displayName);
+        } else {
+            Swal.close();
+            showToast(resData.message);
+        }
+    } catch (error) {
+        Swal.fire('错误!', error.message, 'error');
+    } finally {
+        refreshInstances();
+    }
+};
+
+// 新增实例的默认端口：在现有实例最大端口基础上 +1（上限 65535），避免多实例端口撞车；
+// 一个实例都没有时用 27015。超过上限时从 65535 向下找第一个未被占用的端口
+function nextDefaultPort() {
+    const ports = Object.values(instancesData)
+        .map(inst => parseInt(inst.port, 10))
+        .filter(p => Number.isInteger(p) && p >= 1024 && p <= 65535);
+    if (!ports.length) return 27015;
+    let port = Math.max(...ports) + 1;
+    if (port > 65535) {
+        const used = new Set(ports);
+        port = 65535;
+        while (used.has(port) && port > 1024) port--;
+    }
+    return port;
+}
+
+// 全局设置弹窗：面板级配置（所有实例共用）——RCON 密码 + Steam Key，保存即时生效
+window.openGlobalSettings = function() {
+    Swal.fire({
+        title: '全局设置',
+        width: 560,
+        html: `
+            <div class="swal-setting-card">
+                <div class="ff-field">
+                    <label class="ff-label" for="f-rcon-password">RCON 密码</label>
+                    <input id="f-rcon-password" class="ff-input" autocomplete="off" spellcheck="false">
+                </div>
+                <p class="swal-setting-desc">
+                    填写 = 可获取玩家详细的资料卡<br>
+                    留空 = 不使用RCON
+                </p>
+            </div>
+            <div class="swal-setting-card">
+                <div class="ff-field">
+                    <label class="ff-label" for="f-steam-key">Steam Web API Key</label>
+                    <input id="f-steam-key" class="ff-input" autocomplete="off" spellcheck="false">
+                </div>
+                <p class="swal-setting-desc">
+                    <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>，此处获取你本账号的 key<br>
+                    填写 = 可获取玩家 steam 主页头像<br>
+                    留空 = 使用面板默认头像
+                </p>
+            </div>
+        `,
+        confirmButtonText: '保存',
+        showCancelButton: true,
+        cancelButtonText: '取消',
+        focusConfirm: false,
+        didOpen: async () => {
+            try {
+                const resp = await fetch('/api/settings');
+                const data = await resp.json();
+                document.getElementById('f-rcon-password').value = data.rcon_password || '';
+                document.getElementById('f-steam-key').value = data.steam_api_key || '';
+            } catch (err) { /* 回填失败保持空值，保存逻辑不受影响 */ }
+        },
+        preConfirm: async () => {
+            const rcon = document.getElementById('f-rcon-password').value.trim();
+            const key = document.getElementById('f-steam-key').value.trim();
+            if (key && !/^[0-9A-Fa-f]{32}$/.test(key)) {
+                Swal.showValidationMessage('Steam Web API Key 应为 32 位十六进制字符');
+                return false;
+            }
+            if (rcon && !/^[A-Za-z0-9_.-]{1,64}$/.test(rcon)) {
+                Swal.showValidationMessage('RCON 密码仅限字母/数字/点/下划线/短横线（1-64 位，无空格）');
+                return false;
+            }
+            const response = await fetch('/api/settings/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rcon_password: rcon, steam_api_key: key })
+            });
+            const res = await response.json().catch(() => ({}));
+            if (!response.ok || !res.success) {
+                Swal.showValidationMessage(res.message || '保存失败');
+                return false;
+            }
+            return res;
+        }
+    }).then((res) => {
+        if (res.isConfirmed) {
+            showToast('面板设置已保存');
+            refreshInstances();
+        }
+    });
+};
+
+// originalId 为内部实例 ID（编辑时传入），screen 会话等内部标识与之绑定，改名不影响
+window.openInstanceForm = function(originalId) {
+    const isEdit = !!originalId;
+    // 编辑时从 /api/instances 的合并结果取值（键名为 tickrate/extra_params），新增时用默认值
+    const cfg = isEdit ? (instancesData[originalId] || {}) : {};
+    const src = {
+        name: cfg.name ?? '',
+        port: cfg.port ?? nextDefaultPort(),
+        map: cfg.map ?? 'c1m1_hotel',
+        mode: cfg.mode ?? '',
+        cfg: cfg.cfg ?? 'server.cfg',
+        tick: cfg.tickrate ?? cfg.tick ?? 100,
+        params: cfg.extra_params ?? cfg.params ?? DEFAULT_PARAMS,
+    };
+    const v = (key) => escapeHtml(src[key]);
+
+    // 服务器命名插件（l4d2_hostname.txt）联动：文件存在时在名称下方渲染同步开关
+    // 卡片（与端口并排）。绑定名以文件格式为准：kv = 按端口节（无则 default 兜底）；
+    // plain = 单服名，仅单实例可绑（新增实例按 +1 计数），多实例时开关禁用；
+    // broken = KV 形状但结构损坏（如丢了根块闭合括号），一律禁用并提示修复，
+    // 绝不把结构行当服名
+    const hp = instancesData['_hostname_plugin'] || null;
+    const hasPlugin = !!(hp && hp.exists);
+    const instCount = instanceIds.length + (isEdit ? 0 : 1);
+    const bindable = hasPlugin && (hp.mode === 'kv' || (hp.mode === 'plain' && instCount <= 1));
+    const syncOn = isEdit && bindable && !!cfg.hostname_sync;
+    // 编辑已绑定实例时名称预填文件当前值——运行时文件才是服名所有者，避免
+    // "输入框显示 A、实际生效 B" 的认知错位
+    const boundName = hasPlugin && hp.mode === 'kv'
+        ? (hp.names[String(src.port)] ?? hp.names['default'] ?? '')
+        : (hasPlugin && hp.mode === 'plain' ? (hp.names['plain'] ?? '') : '');
+    const prefillName = (syncOn && boundName) ? boundName : src.name;
+
+    Swal.fire({
+        title: isEdit ? `编辑实例: ${escapeHtml(src.name)}` : '新增实例',
+        width: 560,
+        html: `
+            <div class="inst-form">
+                <div class="ff-field ff-full">
+                    <label class="ff-label" for="f-name">实例名称</label>
+                    <input id="f-name" class="ff-input" value="${escapeHtml(prefillName)}" spellcheck="false">
+                </div>
+                ${hasPlugin ? `
+                <label class="sync-card${bindable ? '' : ' is-disabled'}" title="${bindable
+                    ? '开启后先读取插件当前服名，保存时把修改写回文件（双向同步）'
+                    : (hp.mode === 'broken'
+                        ? '插件文件疑似损坏（KV 结构不完整），请修复 l4d2_hostname.txt 后刷新重试'
+                        : '旧版插件配置为单服名，多实例下无法安全绑定')}">
+                    <span class="sync-card-text">
+                        <span class="sync-card-title">服名同步</span>
+                        <span class="sync-card-desc">${hp.mode === 'kv' ? '按端口绑定' : hp.mode === 'plain' ? '旧版单服名' : '文件已损坏，待修复'}</span>
+                    </span>
+                    <input type="checkbox" id="f-hostname-sync" ${syncOn ? 'checked' : ''} ${bindable ? '' : 'disabled'}>
+                    <span class="sync-switch" aria-hidden="true"></span>
+                </label>` : ''}
+                <div class="ff-field${hasPlugin ? '' : ' ff-full'}">
+                    <label class="ff-label" for="f-port">端口</label>
+                    <input id="f-port" type="number" class="ff-input" value="${v('port')}" placeholder="27015">
+                </div>
+                <input type="hidden" id="f-map" value="${v('map')}">
+                <button type="button" id="f-map-trigger" class="ff-field ff-map-field" title="点击选择初始地图" onclick="openMapPicker()">
+                    <span class="ff-label">初始地图</span>
+                    <span class="ff-map-value">
+                        <span id="f-map-text">${v('map')}</span>
+                        <i data-feather="chevron-down" style="width:16px; height:16px; flex-shrink:0;"></i>
+                    </span>
+                </button>
+                <div class="ff-field">
+                    <label class="ff-label" for="f-mode">游戏模式</label>
+                    <input id="f-mode" class="ff-input" value="${v('mode')}" list="mode-list" spellcheck="false">
+                    <datalist id="mode-list">
+                        <option>coop</option><option>realism</option><option>versus</option>
+                        <option>survival</option><option>scavenge</option>
+                    </datalist>
+                </div>
+                <div class="ff-field">
+                    <label class="ff-label" for="f-cfg">配置文件</label>
+                    <input id="f-cfg" class="ff-input" value="${v('cfg')}" placeholder="server.cfg" spellcheck="false">
+                </div>
+                <div class="ff-field">
+                    <label class="ff-label" for="f-tick">Tickrate</label>
+                    <input id="f-tick" type="number" class="ff-input" value="${v('tick')}" placeholder="100">
+                </div>
+                <div class="ff-field ff-full">
+                    <label class="ff-label" for="f-params">额外参数</label>
+                    <input id="f-params" class="ff-input" value="${v('params')}" placeholder="+sv_setmax 31 -nobreakpad" spellcheck="false">
+                </div>
+            </div>
+            <p class="swal-hint">实例名称中英文均可（1-64 字符）；游戏模式留空 = 默认 coop；
+               额外参数禁止 ; | &amp; $ 等字符</p>
+        `,
+        confirmButtonText: '保存',
+        showCancelButton: true,
+        cancelButtonText: '取消',
+        focusConfirm: false,
+        didOpen: () => {
+            feather.replace();
+            // 服名同步开关：开启时先"检测"——按插件的读取顺序（端口节 → default；
+            // plain 取单行）把文件当前服名填入名称框，由用户决定是否沿用；保存时才把
+            // （可能改过的）名称写回文件。关闭时若名称仍是开启时读入的原值则还原，
+            // 动过则保留用户的修改
+            const syncBox = document.getElementById('f-hostname-sync');
+            if (syncBox) {
+                const syncCard = syncBox.closest('.sync-card');
+                const nameInput = document.getElementById('f-name');
+                const portInput = document.getElementById('f-port');
+                let nameBeforeSync = syncOn ? src.name : null;   // 开启前的名称，供关闭还原
+                const readBoundName = () => {
+                    if (hp.mode === 'kv') {
+                        return hp.names[String(portInput.value).trim()] ?? hp.names['default'] ?? '';
+                    }
+                    if (hp.mode === 'plain') {
+                        return hp.names['plain'] ?? '';
+                    }
+                    return '';   // broken：不给名称框填任何结构垃圾
+                };
+                // 常显提示行已省去：小字固定显示绑定模式，开关状态与禁用原因
+                // 收进悬停提示（title）动态更新；开启时卡片描边点亮品牌色
+                const render = () => {
+                    syncCard.classList.toggle('is-on', syncBox.checked);
+                    syncCard.title = syncBox.disabled
+                        ? (hp.mode === 'broken'
+                            ? '插件文件疑似损坏（KV 结构不完整，常见于编辑时丢失末尾根块的闭合括号）。请修复文件后刷新重试'
+                            : '旧版插件配置为单服名，多实例下无法安全绑定')
+                        : (!syncBox.checked
+                            ? '开启后，将先读取插件文件中当前端口的服名填入名称框，保存时把修改写回文件'
+                            : (hp.mode === 'kv'
+                                ? '已开启：已读取当前服名（无端口节时取 default），保存时按端口写回；游戏内 !host 改名自动同步到卡片'
+                                : '已开启：已读取当前服名，保存时写入 l4d2_hostname.txt（旧版单服名模式）'));
+                };
+                syncBox.addEventListener('change', () => {
+                    if (syncBox.disabled) {
+                        render();
+                        return;
+                    }
+                    if (syncBox.checked) {
+                        const bound = readBoundName();
+                        if (bound) {
+                            if (nameBeforeSync === null) nameBeforeSync = nameInput.value;
+                            nameInput.value = bound;   // 先检测并写入名称框，由用户决定是否沿用
+                        }
+                    } else if (nameBeforeSync !== null) {
+                        if (nameInput.value === readBoundName()) nameInput.value = nameBeforeSync;
+                        nameBeforeSync = null;
+                    }
+                    render();
+                });
+                render();
+            }
+        },
+        allowOutsideClick: () => !Swal.isLoading(),
+        preConfirm: async () => {
+            const payload = {
+                original_id: isEdit ? originalId : '',
+                name: document.getElementById('f-name').value.trim(),
+                port: document.getElementById('f-port').value,
+                map: document.getElementById('f-map').value.trim(),
+                mode: document.getElementById('f-mode').value.trim(),
+                cfg: document.getElementById('f-cfg').value.trim(),
+                tick: document.getElementById('f-tick').value,
+                params: document.getElementById('f-params').value.trim(),
+                hostname_sync: !!(document.getElementById('f-hostname-sync') || {}).checked,
+            };
+            if (!payload.name || payload.name.length > 64 || /[\x00-\x1f\x7f]/.test(payload.name)) {
+                Swal.showValidationMessage('实例名称不能为空，且不超过 64 个字符（中英文均可）');
+                return false;
+            }
+            if (/["`$\\;&|<>']/.test(payload.name)) {
+                Swal.showValidationMessage('实例名称包含被禁止的字符（不允许 " ` $ \\ ; & | < > \'）');
+                return false;
+            }
+            if (!/^\d+$/.test(payload.port)) {
+                Swal.showValidationMessage('端口必须是数字');
+                return false;
+            }
+            const response = await fetch('/api/instances/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const res = await response.json().catch(() => ({}));
+            if (!response.ok || !res.success) {
+                Swal.showValidationMessage(res.message || '保存失败');
+                return false;
+            }
+            return res;
+        }
+    }).then((res) => {
+        if (res.isConfirmed) {
+            showToast(res.value.message);
+            refreshInstances();
+        }
+    });
+};
+
+// 居中弹出的初始地图选择器：表单上方再打开一层小窗口，一屏显示 12 行、可滚动/搜索
+window.openMapPicker = function() {
+    const hidden = document.getElementById('f-map');
+    if (!hidden || document.getElementById('map-picker-overlay')) return;
+
+    const current = hidden.value;
+    // 当前值不在官方清单中时（自定义地图），置顶展示并标注
+    const rows = MAP_LIST.includes(current) ? MAP_LIST : [current, ...MAP_LIST];
+
+    const overlay = document.createElement('div');
+    overlay.id = 'map-picker-overlay';
+    overlay.className = 'map-picker-overlay';
+    overlay.innerHTML = `
+        <div class="map-picker" role="dialog" aria-modal="true" aria-label="选择初始地图">
+            <div class="map-picker-header">
+                <h3>选择初始地图</h3>
+                <button type="button" class="map-picker-close" aria-label="关闭"><i data-feather="x"></i></button>
+            </div>
+            <div class="map-picker-search">
+                <i data-feather="search"></i>
+                <input type="text" placeholder="搜索地图 / 战役，如 hotel、c8、毫不留情">
+            </div>
+            <ul class="map-picker-list"></ul>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    feather.replace();
+
+    const listEl = overlay.querySelector('.map-picker-list');
+    const searchInput = overlay.querySelector('input');
+
+    const closePicker = () => {
+        document.removeEventListener('keydown', onKeydown, true);
+        overlay.remove();
+    };
+    const renderList = () => {
+        const kw = searchInput.value.trim().toLowerCase();
+        const items = rows.filter(m =>
+            !kw || m.toLowerCase().includes(kw)
+            || sectionOf(m).toLowerCase().includes(kw)
+            || campaignOf(m).toLowerCase().includes(kw)
+        );
+        // 右侧中文名拆成"战役 - 小节"两列：战役列定宽右对齐、小节列定宽左对齐，
+        // 以 "-" 为对齐基准，行行对齐不受名称长短影响
+        listEl.innerHTML = items.length ? items.map(m => `
+            <li><button type="button" class="map-picker-item${m === current ? ' active' : ''}" data-map="${escapeHtml(m)}">
+                <span class="map-picker-map-name">${escapeHtml(m)}</span>
+                ${MAP_LIST.includes(m)
+                    ? `<span class="map-picker-label"><span class="map-picker-campaign">${escapeHtml(campaignOf(m))}</span><span class="map-picker-dash">-</span><span class="map-picker-section">${escapeHtml(sectionOf(m))}</span></span>`
+                    : '<span class="map-picker-tag">自定义</span>'}
+            </button></li>`).join('')
+            : '<li class="map-picker-empty">没有匹配的地图</li>';
+    };
+    // 用捕获阶段拦截 Esc，只关闭选择器，避免 SweetAlert2 把底层表单一起关掉
+    const onKeydown = (e) => {
+        if (e.key === 'Escape') {
+            e.stopPropagation();
+            closePicker();
+        }
+    };
+    const pick = (value) => {
+        hidden.value = value;
+        document.getElementById('f-map-text').textContent = value;
+        closePicker();
+    };
+
+    renderList();
+    // 让当前选中项滚动到列表可视区中间
+    const active = listEl.querySelector('.map-picker-item.active');
+    if (active) listEl.scrollTop = active.offsetTop - listEl.clientHeight / 2 + active.offsetHeight / 2;
+
+    searchInput.addEventListener('input', renderList);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closePicker(); });
+    overlay.querySelector('.map-picker-close').addEventListener('click', closePicker);
+    listEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.map-picker-item');
+        if (btn) pick(btn.dataset.map);
+    });
+    document.addEventListener('keydown', onKeydown, true);
+    searchInput.focus();
+};
+
+// 实例终端：SSE 流式查看 screen 会话日志（尾部快照 + 增量推送，最多保留 300 行），并可发送控制台命令
+// id 为内部实例 ID（SSE 地址与命令发送均使用它），displayName 仅用于标题展示
+window.openConsole = function(id, displayName) {
+    let es = null;
+    let pending = '';      // 尚未凑齐整行的残段
+    let lines = [];        // 已渲染的完整行
+    const MAX_LINES = 300;
+
+    Swal.fire({
+        title: `终端: ${escapeHtml(displayName || id)}`,
+        width: 760,
+        html: `
+            <div class="console-box"><pre id="console-output"></pre></div>
+            <div class="console-input-row">
+                <input id="console-cmd" class="swal2-input" placeholder="输入命令，如 status" maxlength="128" autocomplete="off">
+                <button type="button" id="console-send" class="btn btn-primary">发送</button>
+            </div>
+            <p class="swal-hint">命令经由 screen 会话发送给服务器控制台；实例停止后日志流自动结束。</p>
+        `,
+        showCancelButton: false,
+        showConfirmButton: false,
+        focusConfirm: false,
+        allowOutsideClick: () => !Swal.isLoading(),
+        didOpen: () => {
+            const box = document.querySelector('.console-box');
+            const output = document.getElementById('console-output');
+            const input = document.getElementById('console-cmd');
+            const sendBtn = document.getElementById('console-send');
+
+            const render = () => { output.textContent = lines.join('\n'); };
+            const trim = () => {
+                const overflow = lines.length - MAX_LINES;
+                if (overflow > 0) lines = lines.slice(overflow);
+            };
+            // 直接追加一条完整消息（用于无换行结尾的提示，避免滞留在残段缓冲里不显示）
+            const appendLine = (line) => {
+                lines.push(line);
+                trim();
+                render();
+            };
+            // 把文本拆成整行并入缓冲（剔除 ANSI 转义序列与回车符），超出上限时裁掉最旧的行
+            const appendContent = (content) => {
+                pending += stripAnsi(content).replace(/\r/g, '');
+                const parts = pending.split('\n');
+                pending = parts.pop();
+                if (parts.length) {
+                    lines = lines.concat(parts);
+                    trim();
+                }
+                render();
+            };
+            // 滚动条接近底部时才自动跟随新日志，向上翻阅时不打扰
+            const nearBottom = () => box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+            const stayOrFollow = (wasNear) => { if (wasNear) box.scrollTop = box.scrollHeight; };
+
+            const stop = () => {
+                if (es) { es.close(); es = null; }
+                input.disabled = true;
+                sendBtn.disabled = true;
+            };
+
+            let failures = 0;
+            es = new EventSource(`/api/instances/console?id=${encodeURIComponent(id)}`);
+            es.onmessage = (ev) => {
+                let msg;
+                try { msg = JSON.parse(ev.data); } catch { return; }
+                if (msg.type === 'snapshot' || msg.type === 'reset') {
+                    const parts = stripAnsi(msg.content).replace(/\r/g, '').split('\n');
+                    pending = parts.pop();
+                    lines = parts;
+                    trim();
+                    render();
+                    box.scrollTop = box.scrollHeight;
+                } else if (msg.type === 'log') {
+                    const wasNear = nearBottom();
+                    appendContent(String(msg.content ?? ''));
+                    stayOrFollow(wasNear);
+                } else if (msg.type === 'exit') {
+                    stayOrFollow(nearBottom());
+                    appendLine('—— 实例会话已结束，日志流关闭 ——');
+                    stop();
+                }
+            };
+            es.onerror = () => {
+                // 连续失败视为实例已停止（EventSource 会自动重连，这里做退出兜底）
+                failures += 1;
+                if (failures >= 3) {
+                    stayOrFollow(nearBottom());
+                    appendLine('—— 无法连接日志流，实例可能已停止 ——');
+                    stop();
+                }
+            };
+
+            const send = async () => {
+                const command = input.value.trim();
+                if (!command || sendBtn.disabled) return;
+                sendBtn.disabled = true;
+                try {
+                    const resp = await fetch('/api/instances/console/send', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id, command })
+                    });
+                    const res = await resp.json().catch(() => ({}));
+                    input.value = '';
+                    input.focus();
+                    if (!resp.ok || !res.success) {
+                        stayOrFollow(nearBottom());
+                        appendLine(`[发送失败] ${res.message || '未知错误'}`);
+                    }
+                } finally {
+                    if (!input.disabled) sendBtn.disabled = false;
+                }
+            };
+            sendBtn.addEventListener('click', send);
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+            input.focus();
+        },
+        didClose: () => { if (es) { es.close(); es = null; } }
+    });
+};
+
+window.deleteInstance = async function(id, displayName) {
+    const result = await Swal.fire({
+        title: '确定删除该实例?',
+        text: `实例 "${displayName || id}" 的配置将被移除（不影响已下载的服务端文件）。`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: 'var(--status-danger)',
+        confirmButtonText: '是的, 删除!',
+        cancelButtonText: '取消'
+    });
+    if (!result.isConfirmed) return;
+    try {
+        const response = await fetch('/api/instances/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        const res = await response.json().catch(() => ({}));
+        if (!response.ok || !res.success) throw new Error(res.message || '删除失败');
+        showToast(res.message);
+    } catch (error) {
+        Swal.fire('错误!', error.message, 'error');
+    } finally {
+        refreshInstances();
+    }
+};
+</script>
+
+</body>
+</html>

@@ -1,0 +1,41 @@
+<aside class="sidebar">
+    <div class="sidebar-brand-row">
+        <img src="{{ url_for('static', filename='login_logo.png') }}" alt="L4D2 面板" class="sidebar-logo">
+    </div>
+    <button type="button" id="sidebarToggle" class="sidebar-link" data-label="展开/收起侧栏" aria-label="展开或收起侧边栏">
+        <i data-feather="menu"></i>
+    </button>
+    <nav class="sidebar-nav">
+        <a href="/" class="sidebar-link {{ 'active' if request.path == '/' else '' }}" data-label="仪表盘" aria-label="仪表盘">
+            <i data-feather="home"></i>
+            <span class="sidebar-text">仪表盘</span>
+        </a>
+        <a href="/instances" class="sidebar-link {{ 'active' if request.path == '/instances' else '' }}" data-label="实例管理" aria-label="实例管理">
+            <i data-feather="server"></i>
+            <span class="sidebar-text">实例管理</span>
+        </a>
+        <a href="/files" class="sidebar-link {{ 'active' if request.path == '/files' else '' }}" data-label="文件管理" aria-label="文件管理">
+            <i data-feather="folder"></i>
+            <span class="sidebar-text">文件管理</span>
+        </a>
+        <a href="/plugins" class="sidebar-link {{ 'active' if request.path == '/plugins' else '' }}" data-label="插件管理" aria-label="插件管理">
+            <i data-feather="package"></i>
+            <span class="sidebar-text">插件管理</span>
+        </a>
+        <a href="/backups" class="sidebar-link {{ 'active' if request.path == '/backups' else '' }}" data-label="备份管理" aria-label="备份管理">
+            <i data-feather="save"></i>
+            <span class="sidebar-text">备份管理</span>
+        </a>
+    </nav>
+    <div class="sidebar-footer">
+        <button type="button" id="themeToggle" class="sidebar-link" data-label="切换主题" aria-label="切换主题">
+            <i data-feather="sun" class="icon-sun"></i>
+            <i data-feather="moon" class="icon-moon"></i>
+            <span class="sidebar-text">切换主题</span>
+        </button>
+        <a href="/logout" class="sidebar-link sidebar-logout" data-label="退出登录" aria-label="退出登录">
+            <i data-feather="log-out"></i>
+            <span class="sidebar-text">退出登录</span>
+        </a>
+    </div>
+</aside>
