@@ -1,11 +1,11 @@
-<img src="./backend/static/login_logo.png" align="right" width="160" alt="L4D2 管理面板" />
+<p align="center"><img src="./backend/static/login_logo.png" width="120" alt="L4D2 管理面板" /></p>
 
 # L4D2-Manager-Panel-v2
 
-这是一个共用同一服务端、快速多开实例的 Left 4 Dead 2 可视化管理面板。
+这是一个共用同一服务端、快速多开实例的 Left 4 Dead 2 可视化管理面板。<br>
 部署、实例、插件、地图、备份一站式管理
 
-> 源项目:  [Q1en/L4D2-Manager-Panel](https://github.com/Q1en/L4D2-Manager-Panel/) 
+> 源项目:  [Q1en/L4D2-Manager-Panel](https://github.com/Q1en/L4D2-Manager-Panel/) <br>
 > 感谢原作者项目
 >
 > 经本地多版本的迭代重构，目录结构、功能与交互已与原项目有较大差异，使用问题请在本仓库提 Issue。
@@ -14,7 +14,7 @@
 
 - **省磁盘**：只部署一次服务端，往后所有实例共用，多开不再成倍占用空间
 - **省时间**：Web网页上可快速 新增/删除 实例，不再需要复制服务端目录、不用改脚本
-- **一服多用**：一个服务端开出多台服务器，例：27015 用于开主服招募同好、27016 用于与朋友开黑、27017 用于给自己单通...... 插件、地图、配置全局共享一份，一处更新全部生效
+- **一服多用**：一个服务端开出多台服务器，例：27015 用于开主服招募同好、27016 用于与朋友开黑、27017<br>用于给自己单通...... 插件、地图、配置全局共享一份，一处更新全部生效
 
 ## 安装与启动
 
