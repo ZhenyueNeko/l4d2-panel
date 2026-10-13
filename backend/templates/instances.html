@@ -291,13 +291,9 @@ function renderCarousel() {
                 : `<button class="btn btn-secondary" disabled title="实例未运行，无法打开终端">
                     <i data-feather="terminal" style="width:14px;"></i><span>终端</span>
                   </button>`}
-            ${inst.running
-                ? `<button class="btn btn-secondary" disabled title="实例运行中，请先停止再编辑">
-                    <i data-feather="edit-2" style="width:14px;"></i><span>编辑</span>
-                  </button>`
-                : `<button class="btn btn-secondary" onclick="openInstanceForm('${escapeHtml(id)}')" title="编辑">
-                    <i data-feather="edit-2" style="width:14px;"></i><span>编辑</span>
-                  </button>`}
+            ${`<button class="btn btn-secondary" onclick="openInstanceForm('${escapeHtml(id)}')" title="${inst.running ? '编辑（运行中可修改：服务器名称实时同步，其余参数下次启动生效）' : '编辑'}">
+                <i data-feather="edit-2" style="width:14px;"></i><span>编辑</span>
+              </button>`}
             ${inst.running
                 ? `<button class="btn btn-secondary" disabled title="实例运行中，请停止再删除">
                     <i data-feather="trash-2" style="width:14px;"></i><span>删除</span>
@@ -668,6 +664,10 @@ window.openInstanceForm = function(originalId) {
         : (hasPlugin && hp.mode === 'plain' ? (hp.names['plain'] ?? '') : '');
     const prefillName = (syncOn && boundName) ? boundName : src.name;
 
+    const runningHint = (isEdit && cfg.running)
+        ? `<div class="ff-full running-hint">实例运行中：保存后服务器名称实时同步生效，其余参数将在下次启动时生效</div>`
+        : '';
+
     Swal.fire({
         title: isEdit ? `编辑实例: ${escapeHtml(src.name)}` : '新增实例',
         width: 560,
@@ -677,6 +677,7 @@ window.openInstanceForm = function(originalId) {
                     <label class="ff-label" for="f-name">实例名称</label>
                     <input id="f-name" class="ff-input" value="${escapeHtml(prefillName)}" spellcheck="false">
                 </div>
+                ${runningHint}
                 ${hasPlugin ? `
                 <label class="sync-card${bindable ? '' : ' is-disabled'}" title="${bindable
                     ? '开启后先读取插件当前服名，保存时把修改写回文件（双向同步）'

@@ -232,8 +232,9 @@ def api_save_instance():
                 hp_state['mode'] == 'kv' or (hp_state['mode'] == 'plain' and len(instances) == 1))
             if bindable_now and not _write_hostname_file(cfg['port'], display_name):
                 app.logger.warning('实例 %s 的服名同步写回失败（文件不可写）', inst_id)
-    # 绑定实例运行中时尽力通过 RCON 立即刷新运行时服名（文件变更要等插件下次
-    # OnConfigsExecuted 才生效）；失败静默——文件已正确，换图后自然一致
+    # 绑定实例运行中时尽力通过 RCON 实时刷新运行时服名：先直设 hostname 立即生效，
+    # 再重载命名插件使其重读 l4d2_hostname.txt、对齐插件内部状态；失败静默——
+    # 文件已正确，换图后自然一致
     if sync_hostname and f"inst_{cfg['port']}" in _get_running_names():
         rcon_password = _global_rcon_password()
         if rcon_password:
@@ -242,6 +243,7 @@ def api_save_instance():
                     with SourceRcon(host, int(cfg['port']), rcon_password,
                                     timeout=RCON_TIMEOUT) as rcon:
                         rcon.command(f'hostname {_hostname_clip(display_name)}')
+                        rcon.command('sm plugins reload l4d2_hostname')
                     break
                 except (OSError, SourceRconError):
                     continue
