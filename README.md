@@ -5,8 +5,9 @@
 这是一个共用同一服务端、快速多开实例的 Left 4 Dead 2 可视化管理面板。<br>
 部署、实例、插件、地图、备份一站式管理
 
-> 源项目:  [Q1en/L4D2-Manager-Panel](https://github.com/Q1en/L4D2-Manager-Panel/) <br>
-> 感谢原作者项目
+> 源项目:  [Q1en/L4D2-Manager-Panel](https://github.com/Q1en/L4D2-Manager-Panel/)
+>
+>  感谢原作者项目
 >
 > 经本地多版本的迭代重构，目录结构、功能与交互已与原项目有较大差异，使用问题请在本仓库提 Issue。
 
