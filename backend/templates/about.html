@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>关于项目 - L4D2 管理面板</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    {% include 'sidebar.html' %}
+
+    <div class="main-container about-page">
+        <header class="page-header">
+            <div>
+                <h1>关于项目</h1>
+                <p>项目信息、源码与视频教程</p>
+            </div>
+        </header>
+
+        <section class="card about-hero">
+            <img src="{{ url_for('static', filename='login_logo.png') }}" alt="" class="about-hero-logo">
+            <div class="about-hero-body">
+                <h2>L4D2 管理面板</h2>
+                <p>共用同一服务端、快速多开实例的 Left 4 Dead 2 可视化管理面板。部署、实例、插件、地图、备份一站式管理。</p>
+                <div class="about-tags">
+                    <span class="about-tag">AGPL-3.0</span>
+                    <span class="about-tag">Python / Flask</span>
+                    <span class="about-tag">多实例</span>
+                </div>
+            </div>
+        </section>
+
+        <div class="about-links">
+            <a class="card about-link-card" href="{{ links.github_url }}" target="_blank" rel="noopener noreferrer" aria-label="在新标签页打开 GitHub 仓库">
+                <div class="about-link-icon"><i data-feather="github"></i></div>
+                <h3>GitHub 仓库</h3>
+                <p>查看源码、提交 Issue 反馈问题、关注更新</p>
+                <div class="about-link-foot">
+                    <span class="about-link-handle">{{ links.github_repo }}</span>
+                    <i data-feather="external-link" class="about-link-arrow"></i>
+                </div>
+            </a>
+            <section class="card about-video-card">
+                <div class="about-link-icon">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="2" y="6" width="20" height="15" rx="3"></rect>
+                        <path d="M7.5 2.5 10 6M16.5 2.5 14 6"></path>
+                        <path d="M8 12v2M16 12v2"></path>
+                    </svg>
+                </div>
+                <h3>哔哩哔哩视频教程</h3>
+                <p>发布于哔哩哔哩 @{{ links.bilibili_name }}</p>
+                <ul class="about-video-list">
+                    {% for video in links.bilibili_videos %}
+                    <li>
+                        <a class="about-video-link" href="{{ video.url }}" target="_blank" rel="noopener noreferrer" aria-label="在新标签页打开视频：{{ video.title }}">
+                            <i data-feather="play-circle"></i>
+                            <span>{{ video.title }}</span>
+                            <i data-feather="external-link" class="about-link-arrow"></i>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </div>
+
+        <section class="card about-credit">
+            <i data-feather="heart"></i>
+            <span>本项目基于
+                <a href="{{ links.upstream_url }}" target="_blank" rel="noopener noreferrer">{{ links.upstream_repo }}</a>
+                二次开发，感谢原作者。</span>
+        </section>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => feather.replace());
+</script>
+</body>
+</html>

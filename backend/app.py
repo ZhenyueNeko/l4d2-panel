@@ -153,6 +153,25 @@ def backups_page():
 def files_page():
     return render_template('files.html')
 
+# 关于页展示的外链
+ABOUT_LINKS = {
+    'github_repo': 'ZhenyueNeko/l4d2-panel',
+    'github_url': 'https://github.com/ZhenyueNeko/l4d2-panel',
+    'bilibili_name': 'ZhenyueNeko',
+    # 视频发布前先指向主页，发布后替换为对应视频地址
+    'bilibili_videos': [
+        {'title': '面板功能介绍', 'url': 'https://space.bilibili.com/'},
+        {'title': '面板部署教程', 'url': 'https://space.bilibili.com/'},
+    ],
+    'upstream_repo': 'Q1en/L4D2-Manager-Panel',
+    'upstream_url': 'https://github.com/Q1en/L4D2-Manager-Panel',
+}
+
+@app.route('/about')
+@login_required
+def about_page():
+    return render_template('about.html', links=ABOUT_LINKS)
+
 
 # --- API 路由 ---
 

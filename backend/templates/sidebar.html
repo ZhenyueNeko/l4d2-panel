@@ -28,6 +28,10 @@
         </a>
     </nav>
     <div class="sidebar-footer">
+        <a href="/about" class="sidebar-link {{ 'active' if request.path == '/about' else '' }}" data-label="关于项目" aria-label="关于项目">
+            <i data-feather="info"></i>
+            <span class="sidebar-text">关于项目</span>
+        </a>
         <button type="button" id="themeToggle" class="sidebar-link" data-label="切换主题" aria-label="切换主题">
             <i data-feather="sun" class="icon-sun"></i>
             <i data-feather="moon" class="icon-moon"></i>
