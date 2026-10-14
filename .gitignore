@@ -6,6 +6,8 @@
 # --- 面板配置与敏感信息（服务器上各自维护，切勿入库） ---
 .env
 .env.bak
+# Steam API Key 首次配置后从 .env 迁移存储于此
+data/panel_settings.json
 
 # --- 服务器运行数据（面板自动生成，覆盖会导致数据丢失） ---
 data/instances.json
