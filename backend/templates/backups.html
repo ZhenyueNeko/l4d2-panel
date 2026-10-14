@@ -385,6 +385,19 @@ function restoreBackupFromDrawer() { if (backupDrawerName) restoreBackup(backupD
 // --- 备份异步启动 + 进度轮询（collect 流动动画 / compress 百分比 / done·error 结果） ---
 let backupProgressTimer = null;
 let backupLastStage = '';
+// 双档轮询：进行中（collect/compress）500ms 快档保证进度条流畅；空闲及 done/error
+// 终态后退 5s 慢档——保住"探测他人新发起备份"的常驻轮询初衷，又避免备份早已
+// 结束后仍以 2 次/秒空转打接口
+const BACKUP_POLL_FAST_MS = 500;
+const BACKUP_POLL_SLOW_MS = 5000;
+let backupPollFast = false;
+
+function scheduleBackupPoll(fast) {
+    if (backupPollFast === fast) return;   // 已在目标档位，无需重建定时器
+    backupPollFast = fast;
+    clearInterval(backupProgressTimer);
+    backupProgressTimer = setInterval(pollBackupProgress, fast ? BACKUP_POLL_FAST_MS : BACKUP_POLL_SLOW_MS);
+}
 
 function setBackupProgress(stage, percent) {
     const tiles = document.getElementById('cscTiles');
@@ -436,6 +449,7 @@ async function pollBackupProgress() {
                 }
             }
             setBackupProgress('idle');
+            scheduleBackupPoll(false);   // 终态已消费，退回慢档
             return;
         }
         if (stage === 'error') {
@@ -445,17 +459,20 @@ async function pollBackupProgress() {
                 loadBackups();
             }
             setBackupProgress('idle');
+            scheduleBackupPoll(false);   // 终态已消费，退回慢档
             return;
         }
         setBackupProgress(stage, data.percent);
         backupLastStage = stage;
+        scheduleBackupPoll(stage === 'collect' || stage === 'compress');
     } catch (err) { /* 轮询失败保持现状，下轮重试 */ }
 }
 
 function startBackupProgressPolling() {
     if (backupProgressTimer) return;
-    pollBackupProgress();
-    backupProgressTimer = setInterval(pollBackupProgress, 500);
+    pollBackupProgress();   // 先立即探一次：页面打开时若已有备份在跑，首轮就会切入快档
+    backupPollFast = false;
+    backupProgressTimer = setInterval(pollBackupProgress, BACKUP_POLL_SLOW_MS);
 }
 
 // 备份完成后的命名引导：留空/取消 = 保留默认时间戳名，填写 = 调用重命名接口
@@ -642,7 +659,7 @@ document.addEventListener('DOMContentLoaded', () => {
     feather.replace();
     loadCurrentStatus();
     loadBackups();
-    startBackupProgressPolling();   // 页面常驻轮询：他人发起的备份结束也能即时看到结果
+    startBackupProgressPolling();   // 页面常驻轮询（慢档起步，备份进行时自动切快档）：他人发起的备份结束也能即时看到结果
 });
 </script>
 
