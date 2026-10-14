@@ -48,10 +48,16 @@ get_env() {
     grep -E "^$1=" "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2-
 }
 
-# 面板端口：优先使用 .env 中玩家自定义的 PANEL_PORT（"配置面板信息"时设置），非法或未配置时回退 8080
-_env_port=$(get_env PANEL_PORT)
-[[ "$_env_port" =~ ^[0-9]+$ ]] && [ "$_env_port" -ge 1024 ] && [ "$_env_port" -le 65535 ] && PANEL_PORT=$_env_port
-unset _env_port
+# 面板端口：优先使用 .env 中的 PANEL_PORT（"配置面板信息"时设置），非法或未配置时回退 8080。
+# "查看状态"/"启动面板"前会重新调用本函数，保证配置修改后打印与探测的端口同步
+refresh_port() {
+    local p
+    p=$(get_env PANEL_PORT)
+    if [[ "$p" =~ ^[0-9]+$ ]] && [ "$p" -ge 1024 ] && [ "$p" -le 65535 ]; then
+        PANEL_PORT=$p
+    fi
+}
+refresh_port
 
 # ---------------- 1. 安装系统依赖 ----------------
 install_deps() {
@@ -189,6 +195,7 @@ EOF
 
 # ---------------- 3. 启动面板 ----------------
 start_panel() {
+    refresh_port
     if ! command -v screen >/dev/null 2>&1; then
         err "错误: 未安装 screen，请先在菜单执行 1) 安装系统依赖"; return 1
     fi
@@ -253,6 +260,7 @@ stop_panel() {
 
 # ---------------- 6. 查看状态 ----------------
 status_panel() {
+    refresh_port
     info "== 面板进程（screen 会话 $PANEL_SESSION）=="
     if session_alive; then
         screen -ls 2>/dev/null | grep "\.$PANEL_SESSION[[:space:]]"
@@ -269,6 +277,9 @@ status_panel() {
             ok "服务正常（HTTP $code）"
         else
             warn "无响应或异常（HTTP ${code:-000}）"
+            if session_alive; then
+                warn "提示: 面板进程在运行但该端口无响应——若刚修改过面板端口，旧进程仍监听原端口，执行 5) 重启面板 后生效。"
+            fi
         fi
     else
         echo "（未安装 curl，跳过探测）"
