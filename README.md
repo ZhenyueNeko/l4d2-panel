@@ -1,4 +1,4 @@
-<p align="center"><img src="./backend/static/login_logo.png" width="120" alt="L4D2 管理面板" /></p>
+<p align="center"><img src="./backend/static/about_logo.png" width="120" alt="L4D2 管理面板" /></p>
 
 # L4D2 管理面板 
 
