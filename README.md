@@ -26,10 +26,10 @@ sudo apt install -y git
 # 2. 克隆项目到 /opt/l4d2-panel
 cd /opt
 git clone https://github.com/ZhenyueNeko/l4d2-panel.git l4d2-panel
-cd l4d2-panel
+cd l4d2-panel/scripts/
 
 # 3. 交互式菜单：安装系统依赖 → 配置面板信息 → 启动面板
-bash scripts/manage.sh
+bash manage.sh
 ```
 
 ## 视频教程
