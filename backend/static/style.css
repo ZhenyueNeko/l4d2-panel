@@ -3183,36 +3183,6 @@ input[type="password"],
 .about-link-arrow { width: 16px; height: 16px; color: var(--text-secondary); transition: color 0.2s ease; }
 .about-link-card:hover .about-link-arrow { color: var(--brand-accent); }
 
-/* B 站卡片：卡片本身不可点，内部每个视频一行独立链接 */
-.about-video-card h3 { margin: var(--space-4) 0 0 0; }
-.about-video-card p { margin: var(--space-2) 0 0 0; font-size: 14px; color: var(--text-secondary); }
-.about-video-list {
-    list-style: none;
-    margin: var(--space-4) 0 0 0;
-    padding: var(--space-3) 0 0 0;
-    border-top: 1px solid var(--border-default);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-}
-.about-video-link {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
-    margin: 0 calc(-1 * var(--space-3));
-    border-radius: var(--border-radius-md);
-    color: var(--text-primary);
-    text-decoration: none;
-    font-size: 14px;
-    transition: background-color 0.2s ease, color 0.2s ease;
-}
-.about-video-link span { flex: 1; }
-.about-video-link svg:first-child { width: 18px; height: 18px; color: var(--brand-accent); flex-shrink: 0; }
-.about-video-link:hover { background: var(--bg-hover); color: var(--brand-accent); }
-.about-video-link:hover .about-link-arrow { color: var(--brand-accent); }
-.about-video-link:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus-ring); }
-
 .about-credit {
     flex-direction: row;
     align-items: center;
