@@ -34,6 +34,5 @@ bash manage.sh
 
 ## 视频教程
 
-- [面板功能介绍](https://www.bilibili.com/)
-- [面板部署教程](https://www.bilibili.com/)
+- [面板功能介绍](https://www.bilibili.com/) 
 
