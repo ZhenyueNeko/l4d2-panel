@@ -451,7 +451,7 @@ def api_action():
         cfg = instances.get(payload)
         if not cfg:
             return jsonify({"success": False, "message": f"实例 '{payload}' 不存在"}), 400
-        result = run_script(['stop_instance', f"inst_{cfg.get('port')}"])
+        result = run_script(['stop_instance', f"inst_{cfg.get('port')}", str(cfg.get('port', 0))])
         if result['success']:
             # 与启动对称：强制刷新运行缓存，避免停止后卡片状态滞后到下次缓存到期
             _get_running_names(max_age=0)

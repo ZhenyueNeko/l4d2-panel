@@ -84,6 +84,15 @@ function Remove-SessionLeftover() {
     return 0
 }
 
+# 判断端口是否仍被监听（UDP 或 TCP 任一存在即视为占用）
+# 用法: Test-PortOccupied <port>，返回 0=占用中，1=空闲
+function Test-PortOccupied() {
+    local port="$1"
+    ss -uln 2>/dev/null | grep -q ":${port}[[:space:]]" && return 0
+    ss -tln 2>/dev/null | grep -q ":${port}[[:space:]]" && return 0
+    return 1
+}
+
 # 向运行中实例的 screen 会话发送一行控制台命令（等效于在该会话键盘输入并回车）
 # 用法: Send-InstanceCommand <instance_name> <command>，返回 0=已发送，1=未运行或命令不合法
 function Send-InstanceCommand() {
@@ -218,8 +227,18 @@ function Start-L4D2ServerInstance_NonInteractive() {
         exit 1
     fi
 
+    # 启动前端口占用检查：端口被占时 srcds 会静默把监听端口顺延 +1
+    # （实测 -strictportbind 在 L4D2 引擎上不生效），导致面板显示的端口与实际
+    # 监听端口不一致。被占则拒绝启动，提示排查残留进程
+    if Test-PortOccupied "$default_port"; then
+        echo "错误: 端口 $default_port 已被占用，无法启动。可能是上次运行的残留进程，" >&2
+        echo "      可在服务器上执行 pgrep -af srcds 排查，或在面板中先执行一次停止（会自动清理残留）。" >&2
+        exit 1
+    fi
+
     # 稳定性参数由后端统一追加（前端"额外参数"不再展示）：
-    #   -strictportbind  端口被占用时直接启动失败，而非漂移到其他端口
+    #   -strictportbind  端口被占用时直接启动失败（注：L4D2 引擎实测不生效，
+    #                    仍会顺延端口——已由启动前的端口占用检查兜底）
     #   -nobreakpad      禁用崩溃转储，避免产生大量 dump 文件
     #   -noassert        禁用断言，减少调试开销
     # 用户额外参数中已包含的项不会重复添加
@@ -272,66 +291,71 @@ LAUNCH_EOF
 }
 
 function Stop-L4D2ServerInstance_NonInteractive() {
-    local instanceName="$1"
+    # 参数: <实例名> <端口>。停止判据是"端口释放"而非"会话消失"：
+    # 进程链（script 录制壳 / srcds_run 监工 / srcds_linux 引擎）可能在会话终止后
+    # 存活为孤儿（引擎对挂断信号不敏感，srcds_run 还自带崩溃重启循环），
+    # 只盯会话会让面板显示"已停止"而端口仍被占用、玩家查询仍显示运行中
+    local instanceName="$1" port="$2"
     [[ "$instanceName" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo "错误: 实例名称不合法" >&2; exit 1; }
+    [[ "$port" =~ ^[0-9]{1,5}$ ]] || { echo "错误: 端口参数不合法" >&2; exit 1; }
     local session_name="l4d2_manager_${instanceName}"
 
-    if ! screen -ls | grep -q "\.$session_name[[:space:]]"; then
-        echo "实例 '$instanceName' 当前未在运行，无需停止。"
-        return 0
-    fi
+    local had_session=false port_was_occupied=false
+    if Test-PortOccupied "$port"; then port_was_occupied=true; fi
 
-    # Dead 僵尸会话无法响应指令，直接清理残留 socket 即可
-    if ! Test-SessionAlive "$session_name"; then
-        echo "检测到 '$session_name' 为 Dead 僵尸会话，正在直接清理..."
+    if screen -ls | grep -q "\.$session_name[[:space:]]"; then
+        had_session=true
+        if Test-SessionAlive "$session_name"; then
+            # 第一阶段: 优雅停止 —— 向服务器控制台发送 quit 指令，并轮询等待会话退出
+            echo "正在向会话 '$session_name' 发送 quit 指令..."
+            screen -S "$session_name" -X stuff $'quit\n'
+            local waited=0
+            while [ "$waited" -lt 15 ]; do
+                screen -ls | grep -q "\.$session_name[[:space:]]" || break
+                sleep 1
+                waited=$((waited + 1))
+            done
+        fi
+        # 第二阶段: 会话残留（含 Dead 僵尸）时强制终止整个会话
+        if screen -ls | grep -q "\.$session_name[[:space:]]"; then
+            echo "会话未能正常退出，正在强制终止会话..."
+            screen -S "$session_name" -X quit 2>/dev/null
+            sleep 1
+        fi
         screen -wipe >/dev/null 2>&1
-        echo "成功! 已清理实例 '$instanceName' 的僵尸会话。"
-        return 0
     fi
 
-    # 第一阶段: 优雅停止 —— 向服务器控制台发送 quit 指令，并轮询等待其真正退出
-    echo "正在向会话 '$session_name' 发送 quit 指令..."
-    screen -S "$session_name" -X stuff $'quit\n'
-
-    local graceful_timeout=15
-    local waited=0
-    while [ "$waited" -lt "$graceful_timeout" ]; do
-        if ! screen -ls | grep -q "\.$session_name[[:space:]]"; then
-            echo "成功! 实例 '$instanceName' 已停止"
-            return 0
+    # 第三阶段（关键）: 以端口释放为最终判据。进程链的命令行都含 "-port <port>"
+    # （录制壳经 -c 参数、监工与引擎经启动参数），按此一次同杀——必须连同
+    # srcds_run 一起杀，否则它的崩溃重启循环几秒后会把引擎重新拉起
+    if Test-PortOccupied "$port"; then
+        if [ "$had_session" = true ]; then
+            echo "会话已退出但端口 $port 仍被占用，正在清理残留进程链..."
+        else
+            echo "检测到端口 $port 被残留进程占用（实例会话已不存在），正在清理..."
         fi
+        pkill -f -- "-port ${port}([[:space:]]|\$)" 2>/dev/null
         sleep 1
-        waited=$((waited + 1))
-    done
-
-    # 第二阶段: 引擎挂起导致会话残留，让 screen 终止整个会话（向前台进程发送挂断信号）
-    echo "quit 指令在 ${graceful_timeout} 秒内未完成退出，正在强制终止会话..."
-    screen -S "$session_name" -X quit 2>/dev/null
-    waited=0
-    while [ "$waited" -lt 5 ]; do
-        if ! screen -ls | grep -q "\.$session_name[[:space:]]"; then
-            echo "成功! 实例 '$instanceName' 已强制停止。"
-            return 0
+        if Test-PortOccupied "$port"; then
+            # 补刀: 对占用端口的进程直接 SIGKILL（UDP/TCP 监听者一并处理）
+            local pids
+            pids=$({ ss -ulpn 2>/dev/null; ss -tlnp 2>/dev/null; } | grep ":${port}[[:space:]]" | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)
+            if [ -n "$pids" ]; then kill -9 $pids 2>/dev/null; fi
+            sleep 1
         fi
-        sleep 1
-        waited=$((waited + 1))
-    done
-
-    # 兜底: 会话仍残留时杀掉 screen 进程并清理残留 socket，保证状态不会永久卡住
-    echo "会话仍无法退出，强制结束 screen 进程并清理残留..."
-    local session_pid
-    session_pid=$(screen -ls | grep "\.$session_name[[:space:]]" | awk '{print $1}' | cut -d. -f1 | head -n 1)
-    if [ -n "$session_pid" ]; then
-        kill -9 "$session_pid" 2>/dev/null
     fi
-    sleep 1
-    screen -wipe >/dev/null 2>&1
 
-    if ! screen -ls | grep -q "\.$session_name[[:space:]]"; then
-        echo "成功! 实例 '$instanceName' 已强制停止并清理残留会话。"
-    else
-        echo "错误: 实例 '$instanceName' 停止失败，请在服务器上手动执行 'screen -ls' 检查。" >&2
+    if Test-PortOccupied "$port"; then
+        echo "错误: 端口 $port 清理失败，请在服务器上执行 ss -ulnp | grep $port 手动检查" >&2
         return 1
+    fi
+
+    if [ "$had_session" = true ]; then
+        echo "成功! 实例 '$instanceName' 已停止（端口 $port 已释放）。"
+    elif [ "$port_was_occupied" = true ]; then
+        echo "实例 '$instanceName' 未在运行，已清理占用端口 $port 的残留进程。"
+    else
+        echo "实例 '$instanceName' 当前未在运行，无需停止。"
     fi
 }
 
@@ -1134,7 +1158,12 @@ case "$ACTION" in
         ;;
 
     stop_instance)
-        Stop-L4D2ServerInstance_NonInteractive "$1"
+        # 停止判据为端口释放: stop_instance <实例名> <端口>
+        if [ "$#" -lt 2 ]; then
+            echo "错误: stop_instance 需要 2 个参数（实例名与端口）" >&2
+            exit 1
+        fi
+        Stop-L4D2ServerInstance_NonInteractive "$1" "$2"
         ;;
 
     cleanup_session)
