@@ -16,6 +16,17 @@ PANEL_LOG="$BASE_DIR/panel.log"
 PANEL_SESSION="l4d2_panel"   # 面板进程所在的 screen 会话名（游戏实例为 l4d2_manager_*，互不影响）
 PANEL_PORT=8080              # 默认面板端口，实际以 .env 中的 PANEL_PORT 为准（下方重新读取）
 
+# 面板进程匹配模式：仅限定"本项目 .venv 下启动的 gunicorn (app:app)"，
+# 避免用户服务器上存在其他 gunicorn 服务时被 stop_panel 误杀。
+# 用户安装路径不可预知，用纯 bash 逐个转义正则特殊字符（不依赖外部工具，各平台行为一致）
+_p=$BASE_DIR
+_p=${_p//\\/\\\\}; _p=${_p//./\\.}; _p=${_p//+/\\+}; _p=${_p//\?/\\?}
+_p=${_p//\*/\\*};  _p=${_p//\[/\\[}; _p=${_p//\]/\\]}; _p=${_p//\^/\\^}
+_p=${_p//\$/\\$};  _p=${_p//(/\\(};  _p=${_p//)/\\)};  _p=${_p//\|/\\|}
+_p=${_p//\{/\\{};  _p=${_p//\}/\\\}}   # 注意: } 的替换需三层转义，否则 bash 会把结尾 } 误认为扩展结束符
+PANEL_PROC_PAT="$_p/.venv.*gunicorn.*app:app"
+unset _p
+
 # --- 终端颜色（仅交互终端着色；管道/重定向时自动退化为纯文本） ---
 if [ -t 1 ]; then
     C_RESET=$'\033[0m'
@@ -239,10 +250,10 @@ stop_panel() {
     # 关键: screen 退出只会让 gunicorn 收到 SIGHUP（其语义是重载而非退出），
     # 进程会变成孤儿继续占用面板端口，必须显式补发 SIGTERM 才能真正停止
     if command -v pkill >/dev/null 2>&1; then
-        pkill -TERM -f "gunicorn.*app:app" 2>/dev/null
+        pkill -TERM -f "$PANEL_PROC_PAT" 2>/dev/null
         sleep 2
-        if pgrep -f "gunicorn.*app:app" >/dev/null 2>&1; then
-            pkill -KILL -f "gunicorn.*app:app" 2>/dev/null
+        if pgrep -f "$PANEL_PROC_PAT" >/dev/null 2>&1; then
+            pkill -KILL -f "$PANEL_PROC_PAT" 2>/dev/null
             sleep 1
         fi
     fi
@@ -250,8 +261,8 @@ stop_panel() {
         warn "检测到残留的僵尸会话，正在清理..."
         screen -wipe >/dev/null 2>&1
     fi
-    if command -v pgrep >/dev/null 2>&1 && pgrep -f "gunicorn.*app:app" >/dev/null 2>&1; then
-        err "错误: gunicorn 进程未能退出，请手动执行 pkill -f gunicorn"
+    if command -v pgrep >/dev/null 2>&1 && pgrep -f "$PANEL_PROC_PAT" >/dev/null 2>&1; then
+        err "错误: 面板 gunicorn 进程未能退出，请手动执行: pkill -9 -f '${BASE_DIR}/.venv'"
         return 1
     fi
     ok "面板已停止。"
