@@ -420,7 +420,6 @@ function renderPlayers(data) {
                     <span class="pline">${regionCell}</span>
                     <span class="pline"><span class="plabel">STEAMID</span> ${steamCell}</span>
                 </div>
-                <span class="pping" title="延迟"><i data-feather="wifi"></i>${escapeHtml(String(p.ping))}ms</span>
                 <span class="ptime" title="已连接时长"><i data-feather="clock"></i>${escapeHtml(p.duration_text || '--')}</span>
             </div>`;
     }).join('');
