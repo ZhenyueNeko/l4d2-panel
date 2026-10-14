@@ -3133,7 +3133,7 @@ input[type="password"],
     align-items: center;
     gap: var(--space-5);
 }
-.about-hero-logo { width: 72px; height: 72px; object-fit: contain; flex-shrink: 0; }
+.about-hero-logo { width: 120px; height: 120px; object-fit: contain; flex-shrink: 0; border-radius: 12px; }
 .about-hero-body h2 { margin: 0; }
 .about-hero-body p { margin: var(--space-2) 0 0 0; font-size: 14px; color: var(--text-secondary); }
 .about-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
