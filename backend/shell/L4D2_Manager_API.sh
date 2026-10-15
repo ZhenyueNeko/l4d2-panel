@@ -229,11 +229,19 @@ function Start-L4D2ServerInstance_NonInteractive() {
 
     # 启动前端口占用检查：端口被占时 srcds 会静默把监听端口顺延 +1
     # （实测 -strictportbind 在 L4D2 引擎上不生效），导致面板显示的端口与实际
-    # 监听端口不一致。被占则拒绝启动，提示排查残留进程
+    # 监听端口不一致。被占时先清理一轮本面板的残留进程链（命令行都含
+    # "-port <port>"，只命中 srcds，不会误伤占用端口的其他服务），
+    # 清理后仍被占则说明是无关服务，拒绝启动交由用户处理
     if Test-PortOccupied "$default_port"; then
-        echo "错误: 端口 $default_port 已被占用，无法启动。可能是上次运行的残留进程，" >&2
-        echo "      可在服务器上执行 pgrep -af srcds 排查，或在面板中先执行一次停止（会自动清理残留）。" >&2
-        exit 1
+        echo "端口 $default_port 已被占用，正在清理本面板的残留进程..."
+        pkill -f -- "-port ${default_port}([[:space:]]|\$)" 2>/dev/null
+        sleep 2
+        if Test-PortOccupied "$default_port"; then
+            echo "错误: 端口 $default_port 仍被非本面板的进程占用，无法启动。" >&2
+            echo "      请在服务器上执行 ss -ulnp | grep $default_port 查看占用者后手动处理。" >&2
+            exit 1
+        fi
+        echo "残留进程已清理，继续启动。"
     fi
 
     # 稳定性参数由后端统一追加（前端"额外参数"不再展示）：
@@ -291,10 +299,10 @@ LAUNCH_EOF
 }
 
 function Stop-L4D2ServerInstance_NonInteractive() {
-    # 参数: <实例名> <端口>。停止判据是"端口释放"而非"会话消失"：
-    # 进程链（script 录制壳 / srcds_run 监工 / srcds_linux 引擎）可能在会话终止后
-    # 存活为孤儿（引擎对挂断信号不敏感，srcds_run 还自带崩溃重启循环），
-    # 只盯会话会让面板显示"已停止"而端口仍被占用、玩家查询仍显示运行中
+    # 参数: <实例名> <端口>。本函数保持轻量快速（停止按钮同步调用，典型 3-8 秒）：
+    # 优雅退出 + 清理会话 + 一轮快速补杀。判据仍是端口释放，未清理干净的残留
+    # 由实例管理页的轮询自愈兜底（前端检测到"已停止但端口有应答"会再次调用本函数，
+    # 会话不存在 + 端口占用时走孤儿清理分支，按命令行归因整链 pkill）
     local instanceName="$1" port="$2"
     [[ "$instanceName" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo "错误: 实例名称不合法" >&2; exit 1; }
     [[ "$port" =~ ^[0-9]{1,5}$ ]] || { echo "错误: 端口参数不合法" >&2; exit 1; }
@@ -306,11 +314,12 @@ function Stop-L4D2ServerInstance_NonInteractive() {
     if screen -ls | grep -q "\.$session_name[[:space:]]"; then
         had_session=true
         if Test-SessionAlive "$session_name"; then
-            # 第一阶段: 优雅停止 —— 向服务器控制台发送 quit 指令，并轮询等待会话退出
+            # 第一阶段: 优雅停止 —— 向服务器控制台发送 quit 指令，短暂等待会话退出
+            # （超时不再久等，残留交给轮询自愈，保证按钮响应速度）
             echo "正在向会话 '$session_name' 发送 quit 指令..."
             screen -S "$session_name" -X stuff $'quit\n'
             local waited=0
-            while [ "$waited" -lt 15 ]; do
+            while [ "$waited" -lt 5 ]; do
                 screen -ls | grep -q "\.$session_name[[:space:]]" || break
                 sleep 1
                 waited=$((waited + 1))
@@ -318,19 +327,19 @@ function Stop-L4D2ServerInstance_NonInteractive() {
         fi
         # 第二阶段: 会话残留（含 Dead 僵尸）时强制终止整个会话
         if screen -ls | grep -q "\.$session_name[[:space:]]"; then
-            echo "会话未能正常退出，正在强制终止会话..."
+            echo "会话未能及时退出，正在终止会话（残留进程由轮询自愈兜底清理）..."
             screen -S "$session_name" -X quit 2>/dev/null
             sleep 1
         fi
         screen -wipe >/dev/null 2>&1
     fi
 
-    # 第三阶段（关键）: 以端口释放为最终判据。进程链的命令行都含 "-port <port>"
-    # （录制壳经 -c 参数、监工与引擎经启动参数），按此一次同杀——必须连同
-    # srcds_run 一起杀，否则它的崩溃重启循环几秒后会把引擎重新拉起
+    # 第三阶段: 一轮快速补杀。进程链的命令行都含 "-port <port>"（录制壳经 -c 参数、
+    # 监工与引擎经启动参数），按此一次同杀——必须连同 srcds_run 一起杀，否则它的
+    # 崩溃重启循环几秒后会把引擎重新拉起（轮询自愈同样复用本机制）
     if Test-PortOccupied "$port"; then
         if [ "$had_session" = true ]; then
-            echo "会话已退出但端口 $port 仍被占用，正在清理残留进程链..."
+            echo "端口 $port 仍被占用，正在清理残留进程链..."
         else
             echo "检测到端口 $port 被残留进程占用（实例会话已不存在），正在清理..."
         fi
@@ -346,8 +355,9 @@ function Stop-L4D2ServerInstance_NonInteractive() {
     fi
 
     if Test-PortOccupied "$port"; then
-        echo "错误: 端口 $port 清理失败，请在服务器上执行 ss -ulnp | grep $port 手动检查" >&2
-        return 1
+        # 不再反复重试拖慢响应：清理未竟交由轮询自愈，向面板如实报告当前状态
+        echo "实例 '$instanceName' 已停止。注意: 端口 $port 暂仍被占用，实例管理页将在轮询中自动完成清理。"
+        return 0
     fi
 
     if [ "$had_session" = true ]; then

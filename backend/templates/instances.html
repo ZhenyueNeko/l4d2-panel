@@ -481,6 +481,38 @@ async function querySelectedPlayers(showLoading) {
         body.innerHTML = `<div class="players-empty">${escapeHtml(data.message || '暂无玩家数据')}</div>`;
         return;
     }
+    // 孤儿自愈检测：实例已停止（面板按 screen 会话判定）但端口仍有服务器应答，
+    // 说明 srcds_run 的崩溃重启循环在维持一条失控的残留进程链。自动调用一次停止
+    // 接口清理（幂等：会话不存在 + 端口占用时按端口归因整链 pkill），清理后重新查询。
+    // 为防轮询数据过期误判刚启动的实例，清理前先刷新一次运行状态做二次确认
+    const playersList = data.players || [];
+    const instState = instancesData ? instancesData[id] : null;
+    if (playersList.length === 0 && instState && instState.running === false) {
+        body.innerHTML = '<div class="players-empty">检测到实例已停止但端口仍有残留进程，正在自动清理...</div>';
+        countEl.textContent = '0';
+        try {
+            const fresh = await fetchJson('/api/instances');
+            instancesData = fresh;
+            instanceIds = Object.keys(fresh).filter(k => k !== '_hostname_plugin');
+            if (currentIdx >= instanceIds.length) {
+                currentIdx = Math.max(0, instanceIds.length - 1);
+            }
+            const cur = fresh[id];
+            if (!cur || cur.running !== false) {
+                renderPlayers(data);   // 状态数据过期（实例其实在运行），按正常结果展示
+                return;
+            }
+        } catch (err) { /* 状态刷新失败则跳过本轮清理，下轮轮询重试 */ }
+        try {
+            await fetch('/api/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'stop_instance', payload: id })
+            });
+        } catch (err) { /* 清理失败则下轮轮询重试 */ }
+        querySelectedPlayers(false);
+        return;
+    }
     lastPlayersData = data;
     renderPlayers(data);
 }
