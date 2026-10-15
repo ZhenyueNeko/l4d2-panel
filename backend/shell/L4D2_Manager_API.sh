@@ -334,12 +334,14 @@ function Stop-L4D2ServerInstance_NonInteractive() {
         screen -wipe >/dev/null 2>&1
     fi
 
-    # 第三阶段: 一轮快速补杀。进程链的命令行都含 "-port <port>"（录制壳经 -c 参数、
-    # 监工与引擎经启动参数），按此一次同杀——必须连同 srcds_run 一起杀，否则它的
-    # 崩溃重启循环几秒后会把引擎重新拉起（轮询自愈同样复用本机制）
-    if Test-PortOccupied "$port"; then
+    # 第三阶段: 按端口归因整链补杀——无论引擎是否仍在监听。引擎退出释放端口后，
+    # srcds_run 监工仍可能存活并在数秒后重启引擎重新占用端口，所以即使端口暂时
+    # 空闲也要杀。进程链的命令行都含 "-port <port>"（录制壳经 -c 参数、监工与引擎
+    # 经启动参数），按此一次同杀——必须连同 srcds_run 一起杀，否则它的崩溃重启
+    # 循环几秒后会把引擎重新拉起（轮询自愈同样复用本机制）
+    if pgrep -f -- "-port ${port}([[:space:]]|\$)" >/dev/null 2>&1 || Test-PortOccupied "$port"; then
         if [ "$had_session" = true ]; then
-            echo "端口 $port 仍被占用，正在清理残留进程链..."
+            echo "正在清理实例 '$instanceName' 的残留进程链..."
         else
             echo "检测到端口 $port 被残留进程占用（实例会话已不存在），正在清理..."
         fi
@@ -350,6 +352,7 @@ function Stop-L4D2ServerInstance_NonInteractive() {
             local pids
             pids=$({ ss -ulpn 2>/dev/null; ss -tlnp 2>/dev/null; } | grep ":${port}[[:space:]]" | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)
             if [ -n "$pids" ]; then kill -9 $pids 2>/dev/null; fi
+            pkill -9 -f -- "-port ${port}([[:space:]]|\$)" 2>/dev/null
             sleep 1
         fi
     fi
