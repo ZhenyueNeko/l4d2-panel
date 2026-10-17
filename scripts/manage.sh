@@ -7,6 +7,7 @@
 #   2) 配置面板信息（逐项交互生成/修改 .env）
 #   3) 启动面板（独立 screen 后台会话，不占用当前终端）
 #   4/5/6) 停止 / 重启 / 查看面板状态
+#   7) 面板更新（从 GitHub 拉取最新代码，自动重启面板生效）
 # ============================================================
 
 # 本脚本位于 scripts/，BASE_DIR 统一定位到项目根（.env、panel.log 与 backend/ 都在根目录下）
@@ -269,6 +270,65 @@ stop_panel() {
     info "提示: 正在运行的游戏实例（l4d2_manager_* 会话）不受影响。"
 }
 
+# ---------------- 7. 面板更新（git pull 最新代码，成功后自动重启面板生效） ----------------
+update_panel() {
+    if [ ! -d "$BASE_DIR/.git" ]; then
+        err "错误: $BASE_DIR 不是 git 仓库，无法在线更新。请参照 README.md 手动更新。"; return 1
+    fi
+    if ! command -v git >/dev/null 2>&1; then
+        err "错误: 未安装 git，请先执行 1) 安装系统依赖"; return 1
+    fi
+
+    # 本地有未提交改动时先征询：pull 通常仍可合并，冲突时再按提示手动处理
+    local dirty
+    dirty=$(git -C "$BASE_DIR" status --porcelain 2>/dev/null)
+    if [ -n "$dirty" ]; then
+        warn "检测到本地存在未提交改动（更新可能产生冲突）："
+        echo "$dirty" | head -10
+        printf '%s' "仍要继续更新吗? [y/N]: "
+        local ans
+        read -r ans
+        case "$ans" in
+            y|Y|yes|YES) : ;;
+            *) info "已取消更新。"; return 0 ;;
+        esac
+    fi
+
+    info "== 面板更新: 从 GitHub 拉取最新代码（网络偶发阻断会自动重试，最多 5 次）=="
+    local head_before head_after pull_out="" ok=false i
+    head_before=$(git -C "$BASE_DIR" rev-parse HEAD 2>/dev/null)
+    for i in 1 2 3 4 5; do
+        if pull_out=$(git -C "$BASE_DIR" pull 2>&1); then
+            ok=true; break
+        fi
+        echo "第 $i 次拉取失败（国内云服务器连 GitHub 偶发阻断属正常现象），5 秒后重试..." >&2
+        sleep 5
+    done
+    if [ "$ok" != true ]; then
+        err "更新失败: 多次尝试后仍无法连接 GitHub，请稍后在菜单中重试。"
+        return 1
+    fi
+    echo "$pull_out"
+
+    # 以提交号对比判断是否有更新（不依赖 git 输出文案的本地化语言）
+    head_after=$(git -C "$BASE_DIR" rev-parse HEAD 2>/dev/null)
+    if [ "$head_before" = "$head_after" ]; then
+        ok "面板已是最新版本，无需更新。"
+        return 0
+    fi
+    ok "代码已更新到最新版本。"
+
+    # 后端文件有变更需重启进程生效：面板在运行则自动重启，未运行则下次启动即用新版
+    if session_alive || session_exists; then
+        info "检测到面板正在运行，正在自动重启以应用更新..."
+        stop_panel
+        start_panel
+        info "更新完成。如浏览器页面行为异常，请刷新页面并重新登录。"
+    else
+        info "面板当前未运行，下次启动即使用最新版本。"
+    fi
+}
+
 # ---------------- 6. 查看状态 ----------------
 status_panel() {
     refresh_port
@@ -325,6 +385,7 @@ show_menu() {
     printf '%s\n' "  ${C_GREEN}4)${C_RESET} 停止面板"
     printf '%s\n' "  ${C_GREEN}5)${C_RESET} 重启面板"
     printf '%s\n' "  ${C_GREEN}6)${C_RESET} 查看面板状态"
+    printf '%s\n' "  ${C_GREEN}7)${C_RESET} 面板更新"
     printf '%s\n' "  ${C_GREEN}0)${C_RESET} 退出"
     printf '%s\n' "${C_CYAN}----------------------------------------------${C_RESET}"
 }
@@ -341,6 +402,7 @@ while true; do
         4) stop_panel;    read -rp "按回车返回菜单..." _ ;;
         5) stop_panel; start_panel; read -rp "按回车返回菜单..." _ ;;
         6) status_panel;  read -rp "按回车返回菜单..." _ ;;
+        7) update_panel;  read -rp "按回车返回菜单..." _ ;;
         0|q|Q) ok "GoodBye"; exit 0 ;;
         *) err "无效选项，请重新输入" ;;
     esac
