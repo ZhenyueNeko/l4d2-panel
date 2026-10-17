@@ -593,6 +593,9 @@ function nextDefaultPort() {
 
 // 全局设置弹窗：面板级配置（所有实例共用）——RCON 密码 + Steam Key，保存即时生效
 window.openGlobalSettings = function() {
+    // 软确认辅助状态：加载时的 RCON 密码原值（判断是否真的改了）与当前运行中的实例名
+    let loadedRcon = '';
+    let runningNames = [];
     Swal.fire({
         title: '全局设置',
         width: 560,
@@ -606,6 +609,17 @@ window.openGlobalSettings = function() {
                     填写 = 可获取玩家详细的资料卡<br>
                     留空 = 不使用RCON
                 </p>
+            </div>
+            <div class="swal-setting-card" id="rcon-running-warning" style="display:none; border:1px solid var(--status-warning, #d97706);">
+                <div class="ff-field">
+                    <label class="ff-label" style="color:var(--status-warning, #d97706);">
+                        ⚠ 检测到实例正在运行：<span id="rcon-running-names"></span>
+                    </label>
+                    <label style="display:flex;align-items:flex-start;gap:6px;font-size:13px;cursor:pointer;">
+                        <input type="checkbox" id="f-rcon-running-ack" style="margin-top:2px;">
+                        <span>我已知晓：运行中的实例仍使用启动时注入的旧密码，修改后需重启实例才会对新密码生效</span>
+                    </label>
+                </div>
             </div>
             <div class="swal-setting-card">
                 <div class="ff-field">
@@ -629,7 +643,19 @@ window.openGlobalSettings = function() {
                 const data = await resp.json();
                 document.getElementById('f-rcon-password').value = data.rcon_password || '';
                 document.getElementById('f-steam-key').value = data.steam_api_key || '';
+                loadedRcon = data.rcon_password || '';
             } catch (err) { /* 回填失败保持空值，保存逻辑不受影响 */ }
+            try {
+                // 有实例运行时展示软确认声明区（修改 RCON 密码需勾选已知悉）
+                const instResp = await fetch('/api/instances');
+                const instData = await instResp.json();
+                runningNames = Object.values(instData)
+                    .filter(v => v && v.running === true).map(v => v.name || '');
+                if (runningNames.length > 0) {
+                    document.getElementById('rcon-running-names').textContent = runningNames.join('、');
+                    document.getElementById('rcon-running-warning').style.display = '';
+                }
+            } catch (err) { /* 运行状态获取失败则不显示声明区，保存逻辑不受影响 */ }
         },
         preConfirm: async () => {
             const rcon = document.getElementById('f-rcon-password').value.trim();
@@ -640,6 +666,12 @@ window.openGlobalSettings = function() {
             }
             if (rcon && !/^[A-Za-z0-9_.-]{1,64}$/.test(rcon)) {
                 Swal.showValidationMessage('RCON 密码仅限字母/数字/点/下划线/短横线（1-64 位，无空格）');
+                return false;
+            }
+            // 软确认：有实例运行时修改 RCON 密码（含清空），需勾选已知悉声明
+            if (rcon !== loadedRcon && runningNames.length > 0
+                && !document.getElementById('f-rcon-running-ack')?.checked) {
+                Swal.showValidationMessage('检测到实例正在运行，修改 RCON 密码前请先勾选已知悉声明');
                 return false;
             }
             const response = await fetch('/api/settings/save', {
