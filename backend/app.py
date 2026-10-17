@@ -3000,8 +3000,20 @@ def _resolve_avatars(steamid64s):
                 _save_avatar(sid, url, img)
                 resolved[sid] = f'/api/players/avatar/{sid}'
             except Exception:
-                with _avatar_neg_lock:
-                    _avatar_neg_cache[sid] = time.time()
+                # 直连 CDN 失败（国内云服务器访问 avatars.steamstatic.com 常被阻断）
+                # → 经 weserv 图片代理中转重试一次；url 已通过上方 SSRF 域名校验。
+                # output=jpg 固定返回格式，与落盘扩展名判定保持一致
+                try:
+                    proxy_url = ('https://images.weserv.nl/?url='
+                                 + urllib.parse.quote(url, safe='') + '&output=jpg')
+                    img = _http_get(proxy_url, AVATAR_FETCH_TIMEOUT[1] + 5)
+                    if not img:
+                        raise ValueError('空响应')
+                    _save_avatar(sid, url, img)
+                    resolved[sid] = f'/api/players/avatar/{sid}'
+                except Exception:
+                    with _avatar_neg_lock:
+                        _avatar_neg_cache[sid] = time.time()
     return resolved
 
 
