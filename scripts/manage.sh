@@ -270,7 +270,7 @@ stop_panel() {
     info "提示: 正在运行的游戏实例（l4d2_manager_* 会话）不受影响。"
 }
 
-# ---------------- 7. 面板更新（git pull 最新代码，成功后自动重启面板生效） ----------------
+# ---------------- 7. 面板更新（比对差异后可选：常规更新 / 全覆盖更新） ----------------
 update_panel() {
     if [ ! -d "$BASE_DIR/.git" ]; then
         err "错误: $BASE_DIR 不是 git 仓库，无法在线更新。请参照 README.md 手动更新。"; return 1
@@ -279,44 +279,69 @@ update_panel() {
         err "错误: 未安装 git，请先执行 1) 安装系统依赖"; return 1
     fi
 
-    # 本地有未提交改动时先征询：pull 通常仍可合并，冲突时再按提示手动处理
-    local dirty
-    dirty=$(git -C "$BASE_DIR" status --porcelain 2>/dev/null)
-    if [ -n "$dirty" ]; then
-        warn "检测到本地存在未提交改动（更新可能产生冲突）："
-        echo "$dirty" | head -10
-        printf '%s' "仍要继续更新吗? [y/N]: "
-        local ans
-        read -r ans
-        case "$ans" in
-            y|Y|yes|YES) : ;;
-            *) info "已取消更新。"; return 0 ;;
-        esac
-    fi
-
-    info "== 面板更新: 从 GitHub 拉取最新代码（网络偶发阻断会自动重试，最多 5 次）=="
-    local head_before head_after pull_out="" ok=false i
-    head_before=$(git -C "$BASE_DIR" rev-parse HEAD 2>/dev/null)
+    # 第一步: 获取 GitHub 最新状态（只下载数据，不动任何工作文件；失败自动重试）
+    info "== 面板更新: 正在获取 GitHub 最新版本信息（网络偶发阻断会自动重试，最多 5 次）=="
+    local ok=false i
     for i in 1 2 3 4 5; do
-        if pull_out=$(git -C "$BASE_DIR" pull 2>&1); then
-            ok=true; break
-        fi
-        echo "第 $i 次拉取失败（国内云服务器连 GitHub 偶发阻断属正常现象），5 秒后重试..." >&2
+        if git -C "$BASE_DIR" fetch origin main 2>/dev/null; then ok=true; break; fi
+        echo "第 $i 次获取失败，5 秒后重试..." >&2
         sleep 5
     done
     if [ "$ok" != true ]; then
         err "更新失败: 多次尝试后仍无法连接 GitHub，请稍后在菜单中重试。"
         return 1
     fi
-    echo "$pull_out"
 
-    # 以提交号对比判断是否有更新（不依赖 git 输出文案的本地化语言）
-    head_after=$(git -C "$BASE_DIR" rev-parse HEAD 2>/dev/null)
-    if [ "$head_before" = "$head_after" ]; then
-        ok "面板已是最新版本，无需更新。"
-        return 0
+    # 第二步: 差异比对与展示（落后提交 / 差异文件 / 本地未提交改动）
+    local behind diff_files dirty
+    behind=$(git -C "$BASE_DIR" rev-list --count HEAD..origin/main 2>/dev/null)
+    diff_files=$(git -C "$BASE_DIR" diff --name-status HEAD origin/main 2>/dev/null)
+    dirty=$(git -C "$BASE_DIR" status --porcelain --untracked-files=no 2>/dev/null)
+
+    if [ "${behind:-0}" = "0" ] && [ -z "$diff_files" ]; then
+        ok "面板已是最新版本（与 GitHub 完全一致）。"
+        [ -n "$dirty" ] && warn "注意: 本地存在未提交改动，全覆盖更新将丢弃这些改动。"
+        echo "如本地文件异常需要修复，可选择强制重新检出："
+        printf '  1) 全覆盖更新\n  0) 返回菜单\n'
+        printf '%s' "请选择: "
+        local c
+        read -r c
+        case "$c" in
+            1) git -C "$BASE_DIR" reset --hard origin/main >/dev/null 2>&1
+               ok "已强制与 GitHub 对齐。" ;;
+            *) info "已返回菜单。"; return 0 ;;
+        esac
+    else
+        echo "✓ 已获取（本地落后 ${behind:-0} 个提交）"
+        git -C "$BASE_DIR" log --oneline HEAD..origin/main 2>/dev/null
+        if [ -n "$diff_files" ]; then
+            echo ""
+            echo "差异文件（$(echo "$diff_files" | wc -l)）："
+            echo "$diff_files" | sed 's/^/  /; s/\t/  /g'
+        fi
+        [ -n "$dirty" ] && warn "注意: 本地存在未提交改动，全覆盖更新将丢弃这些改动。"
+        echo ""
+        printf '请选择更新方式:\n  1) 常规更新\n  2) 全覆盖更新\n  0) 返回菜单\n'
+        printf '%s' "请选择: "
+        local c
+        read -r c
+        case "$c" in
+            1)
+                info "正在常规更新（git pull 合并）..."
+                if ! git -C "$BASE_DIR" pull 2>&1; then
+                    err "常规更新失败（可能存在本地改动冲突），可重试并选择 2) 全覆盖更新。"
+                    return 1
+                fi ;;
+            2)
+                info "正在全覆盖更新（强制与 GitHub 一致，.env 与 data/ 运行数据不受影响）..."
+                git -C "$BASE_DIR" reset --hard origin/main >/dev/null 2>&1 ;;
+            *)
+                info "已返回菜单。"
+                return 0 ;;
+        esac
     fi
-    ok "代码已更新到最新版本。"
+
+    ok "代码已更新。"
 
     # 后端文件有变更需重启进程生效：面板在运行则自动重启，未运行则下次启动即用新版
     if session_alive || session_exists; then
