@@ -452,10 +452,20 @@ def api_action():
         if not cfg:
             return jsonify({"success": False, "message": f"实例 '{payload}' 不存在"}), 400
         result = run_script(['stop_instance', f"inst_{cfg.get('port')}", str(cfg.get('port', 0))])
+        display_name = cfg.get('name', payload)
         if result['success']:
             # 与启动对称：强制刷新运行缓存，避免停止后卡片状态滞后到下次缓存到期
             _get_running_names(max_age=0)
-            return jsonify({"success": True, "message": result.get('output', '操作成功')})
+            # 完整过程输出（发送 quit/终止会话/清理进程链等）写入服务器日志供排障；
+            # 前端 toast 只显示一行简略结果
+            output = (result.get('output') or '').strip()
+            if output:
+                app.logger.info('实例 %s 停止输出:\n%s', display_name, output)
+            if '暂仍被占用' in output:
+                message = f"实例 '{display_name}' 已停止，端口清理将在稍后自动完成"
+            else:
+                message = f"实例 '{display_name}' 已停止"
+            return jsonify({"success": True, "message": message})
         return jsonify({"success": False, "message": result.get('message', '操作失败')}), 400
 
     # 对于快速完成的任务
