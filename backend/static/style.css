@@ -2729,8 +2729,9 @@ input[type="password"],
     line-height: 1;
 }
 .csc-body { min-height: 108px; }
-/* 当前状态卡内部：左瓦片竖排 + 右明细区（与卡片同高，长列表滚动） */
-.csc-layout { display: grid; grid-template-columns: 172px 1fr; gap: var(--space-4); align-items: stretch; }
+/* 当前状态卡内部：左瓦片竖排 + 右明细区。布局高度恒定（与备份统计卡自然高度匹配），
+   清单再长也只在明细区内滚动，两张卡片不会被内容拉长 */
+.csc-layout { display: grid; grid-template-columns: 172px 1fr; gap: var(--space-4); align-items: stretch; height: 260px; }
 .csc-tiles { display: grid; grid-template-rows: 1fr 1fr; gap: var(--space-3); }
 
 /* 顶部并列：备份统计卡（左，数字瓦片竖排）+ 当前状态卡（右），等高对齐，间距与仪表盘同口径 */
@@ -3079,6 +3080,16 @@ input[type="password"],
 .tp-name { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-meta { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); font-size: 11.5px; flex-shrink: 0; }
 .tp-none { padding: 10px; text-align: center; font-size: 12px; color: var(--text-secondary); }
+/* 明细区空状态：图标 + 标题 + 提示 居中展示（与备份档案空状态同款语言） */
+.csc-empty {
+    margin: auto;
+    text-align: center;
+    color: var(--text-secondary);
+    padding: var(--space-4);
+}
+.csc-empty svg { width: 30px; height: 30px; opacity: .65; }
+.csc-empty-title { font-weight: 600; color: var(--text-primary); margin-top: 10px; }
+.csc-empty-hint { font-size: 12px; margin-top: 5px; }
 
 /* 备份档案视图切换：旧视图淡出下移 → 换内容 → 新视图淡入上浮 */
 #backupList { transition: opacity .18s ease, transform .18s ease; }

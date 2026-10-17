@@ -160,13 +160,16 @@ async function loadCurrentStatus() {
     renderCscDetail();
 }
 
-// 明细区渲染：实例列表带运行状态/模式/端口，插件列表为名称清单
+// 明细区渲染：实例列表带运行状态/模式/端口，插件列表为名称清单；
+// 空状态用图标+标题+提示居中展示（与备份档案空状态同款视觉语言）
 function renderCscDetail() {
     const el = document.getElementById('cscDetail');
     if (currentTile === 'plug') {
         el.innerHTML = currentInstalled.length ? currentInstalled.map(n =>
             `<div class="tp-row"><span class="tp-name">${escHtml(n)}</span></div>`).join('')
-            : '<div class="tp-none">暂无已安装插件</div>';
+            : `<div class="csc-empty"><i data-feather="package"></i>` +
+              `<div class="csc-empty-title">暂无已安装插件</div>` +
+              `<div class="csc-empty-hint">在插件管理页安装后，插件清单将在此展示</div></div>`;
     } else {
         el.innerHTML = currentInstances.length ? currentInstances.map(i => `
             <div class="tp-row">
@@ -174,8 +177,11 @@ function renderCscDetail() {
                 <span class="tp-meta">${i.running
                     ? '<span class="dot dot-run"></span>运行中'
                     : '<span class="dot dot-stop"></span>已停止'} · ${escHtml(String(i.mode || 'coop'))} · ${escHtml(String(i.port))}</span>
-            </div>`).join('') : '<div class="tp-none">暂无实例</div>';
+            </div>`).join('') : `<div class="csc-empty"><i data-feather="server"></i>` +
+              `<div class="csc-empty-title">暂无实例</div>` +
+              `<div class="csc-empty-hint">在实例管理页创建后，运行状态与端口将在此展示</div></div>`;
     }
+    if (typeof feather !== 'undefined') feather.replace();
 }
 
 // 瓦片点击切换选中态与右侧明细
