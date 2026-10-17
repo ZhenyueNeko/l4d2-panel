@@ -884,8 +884,13 @@ def api_upload_chunk():
     if not 0 <= index < total:
         return jsonify({"success": False, "error": "分片序号超出范围"}), 400
     data = request.get_data(cache=False)
-    if len(data) > meta['chunk_size']:
-        return jsonify({"success": False, "error": "分片体积超出限制"}), 400
+    # 按分片序号校验数据长度：客户端中途取消/断线时，服务器会把"已收到的部分数据"
+    # 当作请求体读完（不报错），不校验长度就会把半截分片存成完整分片——续传时该分片
+    # 被跳过，最终组装体积与原文件不符（曾是"分片组装后大小不一致"报错的根因）。
+    # 末片按剩余体积计算期望值；长度不符一律拒绝落盘，续传时该分片会被重新上传
+    expected = meta['chunk_size'] if index < total - 1 else meta['size'] - meta['chunk_size'] * (total - 1)
+    if len(data) != expected:
+        return jsonify({"success": False, "error": "分片数据不完整或体积不符，请重传该分片"}), 400
     chunks_dir = os.path.join(session_dir, 'chunks')
     final_path = os.path.join(chunks_dir, f'{index}.part')
     tmp_path = final_path + '.tmp'

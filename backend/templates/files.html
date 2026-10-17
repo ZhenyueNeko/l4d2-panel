@@ -1111,8 +1111,9 @@ async function uploadFileChunked(file, opts) {
                 }
                 const data = await resp.json().catch(() => ({}));
                 lastError = friendlyUploadError(resp.status, data);
-                // 仅服务器临时性故障重试；明确拒绝（磁盘不足/超限等）立即停止
-                const retryable = resp.status === 500 || resp.status === 502 || resp.status === 503 || resp.status === 504;
+                // 服务器临时性故障重试；400 = 服务端检测到分片数据不完整（传输中断所致），
+                // 重发同一分片即可自愈，同样纳入重试；明确拒绝（磁盘不足等）立即停止
+                const retryable = resp.status === 400 || resp.status === 500 || resp.status === 502 || resp.status === 503 || resp.status === 504;
                 if (!retryable) break;
             } catch (err) {
                 activeUploadAbort = null;
