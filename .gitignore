@@ -39,3 +39,7 @@ Desktop.ini
 
 # --- 工具配置（本地保留，不入库） ---
 .zcodeignore
+
+# --- 上传分片会话（大文件分片直传通道的暂存目录，完成即清理） ---
+data/plugin_uploads/
+data/upload_chunks/
