@@ -55,17 +55,20 @@
                     </div>
                 </div>
                 <div class="csc-body" style="padding: var(--space-4);">
-                    <!-- 平常态：两张可交互内容瓦片（点击弹出完整明细） -->
-                    <div class="csc-tiles" id="cscTiles">
-                        <div class="csc-tile csc-clickable" id="cscTileInst" onclick="toggleTilePopover(event, 'inst')" title="点击查看实例明细">
-                            <div class="csc-tile-head"><i data-feather="server" class="csc-tile-icon"></i><span class="csc-tile-label">实例卡片</span></div>
-                            <div class="csc-tile-num" id="cscInstNum">–</div>
-                            <div class="tile-pop" id="popInst"></div>
+                    <!-- 左：两张可交互瓦片（竖排，点击切换）+ 右：明细区（仿仪表盘服务器资源模式） -->
+                    <div class="csc-layout" id="cscLayout">
+                        <div class="csc-tiles" id="cscTiles">
+                            <div class="csc-tile csc-clickable active" id="cscTileInst" onclick="selectTile('inst')" title="点击在右侧查看实例明细">
+                                <div class="csc-tile-head"><i data-feather="server" class="csc-tile-icon"></i><span class="csc-tile-label">实例卡片</span></div>
+                                <div class="csc-tile-num" id="cscInstNum">–</div>
+                            </div>
+                            <div class="csc-tile csc-clickable" id="cscTilePlug" onclick="selectTile('plug')" title="点击在右侧查看插件清单">
+                                <div class="csc-tile-head"><i data-feather="package" class="csc-tile-icon"></i><span class="csc-tile-label">已安装插件</span></div>
+                                <div class="csc-tile-num" id="cscPlugNum">–</div>
+                            </div>
                         </div>
-                        <div class="csc-tile csc-clickable" id="cscTilePlug" onclick="toggleTilePopover(event, 'plug')" title="点击查看插件清单">
-                            <div class="csc-tile-head"><i data-feather="package" class="csc-tile-icon"></i><span class="csc-tile-label">已安装插件</span></div>
-                            <div class="csc-tile-num" id="cscPlugNum">–</div>
-                            <div class="tile-pop" id="popPlug"></div>
+                        <div class="csc-detail" id="cscDetail">
+                            <div class="tp-none">加载中...</div>
                         </div>
                     </div>
                     <!-- 备份进行中：同高度进度面板整体替换瓦片，不产生布局跳动 -->
@@ -131,9 +134,10 @@ function showBackupToast(title) {
         timer: 2400, timerProgressBar: true, icon: 'success', title });
 }
 
-// --- 当前状态（两张内容瓦片：实例卡片 / 已安装插件） ---
-let currentInstances = [];   // 供实例明细弹层使用
-let currentInstalled = [];   // 供插件清单弹层使用
+// --- 当前状态：左瓦片（实例卡片 / 已安装插件，点击切换）+ 右明细区 ---
+let currentInstances = [];   // 实例明细数据源
+let currentInstalled = [];   // 插件清单数据源
+let currentTile = 'inst';    // 当前选中的瓦片（默认实例）
 
 async function loadCurrentStatus() {
     try {
@@ -147,46 +151,40 @@ async function loadCurrentStatus() {
         currentInstalled = ((await plugResp.json()).installed) || [];
 
         document.getElementById('cscInstNum').textContent = currentInstances.length;
-
-        // 插件瓦片明细按需求留空（数量即信息），完整清单走点击弹层
         document.getElementById('cscPlugNum').textContent = currentInstalled.length;
     } catch (err) {
-        document.getElementById('cscInstDetail').textContent = '加载失败';
+        currentInstances = [];
+        currentInstalled = [];
         document.getElementById('cscPlugNum').textContent = '–';
     }
-    if (typeof feather !== 'undefined') feather.replace();
+    renderCscDetail();
 }
 
-// --- 瓦片明细弹层：点击瓦片显示完整清单，点击外部关闭 ---
-function toggleTilePopover(ev, which) {
-    ev.stopPropagation();
-    const pop = document.getElementById(which === 'inst' ? 'popInst' : 'popPlug');
-    const other = document.getElementById(which === 'inst' ? 'popPlug' : 'popInst');
-    if (other) other.classList.remove('open');
-    const opening = !pop.classList.contains('open');
-    pop.classList.toggle('open', opening);
-    if (!opening) return;
-    if (which === 'inst') {
-        pop.innerHTML = currentInstances.length ? currentInstances.map(i => `
+// 明细区渲染：实例列表带运行状态/模式/端口，插件列表为名称清单
+function renderCscDetail() {
+    const el = document.getElementById('cscDetail');
+    if (currentTile === 'plug') {
+        el.innerHTML = currentInstalled.length ? currentInstalled.map(n =>
+            `<div class="tp-row"><span class="tp-name">${escHtml(n)}</span></div>`).join('')
+            : '<div class="tp-none">暂无已安装插件</div>';
+    } else {
+        el.innerHTML = currentInstances.length ? currentInstances.map(i => `
             <div class="tp-row">
                 <span class="tp-name">${escHtml(i.name || '未命名')}</span>
                 <span class="tp-meta">${i.running
                     ? '<span class="dot dot-run"></span>运行中'
                     : '<span class="dot dot-stop"></span>已停止'} · ${escHtml(String(i.mode || 'coop'))} · ${escHtml(String(i.port))}</span>
             </div>`).join('') : '<div class="tp-none">暂无实例</div>';
-    } else {
-        pop.innerHTML = currentInstalled.length ? currentInstalled.map(n =>
-            `<div class="tp-row"><span class="tp-name">${escHtml(n)}</span></div>`).join('')
-            : '<div class="tp-none">暂无已安装插件</div>';
     }
 }
 
-// 点击瓦片以外区域时关闭所有弹层
-document.addEventListener('click', (e) => {
-    if (!e.target.closest('.csc-tile')) {
-        document.querySelectorAll('.tile-pop.open').forEach(p => p.classList.remove('open'));
-    }
-});
+// 瓦片点击切换选中态与右侧明细
+function selectTile(which) {
+    currentTile = which;
+    document.getElementById('cscTileInst').classList.toggle('active', which === 'inst');
+    document.getElementById('cscTilePlug').classList.toggle('active', which === 'plug');
+    renderCscDetail();
+}
 
 // --- 备份档案列表（数据加载一次，双视图共用） ---
 function fmtBackupSize(bytes) {
@@ -400,7 +398,7 @@ function scheduleBackupPoll(fast) {
 }
 
 function setBackupProgress(stage, percent) {
-    const tiles = document.getElementById('cscTiles');
+    const tiles = document.getElementById('cscLayout');
     const busy = document.getElementById('cscBusy');
     const fill = document.getElementById('backupProgressFill');
     const text = document.getElementById('backupProgressText');
@@ -408,8 +406,8 @@ function setBackupProgress(stage, percent) {
     const btnLabel = btn ? btn.querySelector('.do-backup-label') : null;
     if (!busy || !fill || !text) return;
     const isBusy = (stage === 'collect' || stage === 'compress');
-    // 同高度进度面板整体替换瓦片：进行中/空闲切换均无布局跳动
-    if (tiles) tiles.style.display = isBusy ? 'none' : 'grid';
+    // 同高度进度面板整体替换瓦片区：进行中/空闲切换均无布局跳动
+    if (tiles) tiles.style.display = isBusy ? 'none' : '';
     busy.style.display = isBusy ? 'flex' : 'none';
     if (btn) { btn.classList.toggle('is-busy', isBusy); btn.disabled = isBusy; }
     if (btnLabel) btnLabel.textContent = isBusy

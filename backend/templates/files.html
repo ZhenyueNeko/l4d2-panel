@@ -1443,7 +1443,6 @@ function mapUploadFiles(fileList) {
         }
         q.status = 'uploading';
         setRow(q, '0.0%', '', 0);
-        const fileMeter = createUploadSpeedMeter();
         const finish = (ok, message) => {
             q.loaded = q.file.size;
             processedBytes += q.file.size;
@@ -1467,8 +1466,7 @@ function mapUploadFiles(fileList) {
             onProgress: (loaded, total) => {
                 q.loaded = loaded;
                 const percent = total ? (loaded / total) * 100 : 0;
-                const speed = fileMeter(loaded);
-                setRow(q, `${percent.toFixed(1)}% · ${speed > 0 ? fmtBytes(speed) + '/s' : '--'} · ${fmtBytes(loaded)}`, '', percent);
+                setRow(q, `${percent.toFixed(1)}% · ${fmtBytes(loaded)}/${fmtBytes(total)}`, '', percent);
                 renderAggregate();
             }
         }).then((data) => {
@@ -1632,7 +1630,6 @@ async function batchToggleApply() {
     const actionText = allApplied ? '取消应用' : '应用';
     const result = await Swal.fire({
         title: `确定要${actionText}选中的 ${names.length} 张地图吗?`,
-        text: allApplied ? '将摘除 addons 中对应的软链接，库文件保留' : '将以软链接形式接入服务器 addons 目录',
         showCancelButton: true,
         confirmButtonText: `是的, ${actionText}!`,
         cancelButtonText: '取消'
