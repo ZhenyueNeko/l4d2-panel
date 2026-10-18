@@ -605,17 +605,15 @@ window.openGlobalSettings = function() {
                     <label class="ff-label" for="f-rcon-password">RCON 密码</label>
                     <input id="f-rcon-password" class="ff-input" autocomplete="off" spellcheck="false">
                 </div>
-                <p class="swal-setting-desc">
+                <p class="swal-setting-desc" id="rcon-desc">
                     填写 = 可获取玩家详细的资料卡<br>
                     留空 = 不使用RCON
                 </p>
-            </div>
-            <div class="swal-setting-card" id="rcon-running-warning" style="display:none; border:1px solid var(--status-warning, #d97706);">
-                <div class="ff-field">
-                    <label class="ff-label" style="color:var(--status-warning, #d97706);">
+                <div id="rcon-running-warning" style="display:none; border:1px solid var(--status-warning, #d97706); border-radius:8px; padding:10px; margin-top:8px;">
+                    <div class="ff-label" style="color:var(--status-warning, #d97706);">
                         ⚠ 检测到实例正在运行：<span id="rcon-running-names"></span>
-                    </label>
-                    <label style="display:flex;align-items:flex-start;gap:6px;font-size:13px;cursor:pointer;">
+                    </div>
+                    <label style="display:flex;align-items:flex-start;gap:6px;font-size:13px;cursor:pointer;margin-top:8px;">
                         <input type="checkbox" id="f-rcon-running-ack" style="margin-top:2px;">
                         <span>我已知晓：运行中的实例仍使用启动时注入的旧密码，修改后需重启实例才会对新密码生效</span>
                     </label>
@@ -646,15 +644,26 @@ window.openGlobalSettings = function() {
                 loadedRcon = data.rcon_password || '';
             } catch (err) { /* 回填失败保持空值，保存逻辑不受影响 */ }
             try {
-                // 有实例运行时展示软确认声明区（修改 RCON 密码需勾选已知悉）
+                // 软确认联动：有实例运行时，RCON 密码一旦被修改，说明文本就地替换为
+                // "已知悉"声明区；改回原值则自动还原。监听器无条件挂载、修改判定在
+                // 触发时动态读取运行状态，保证任何时序下都能正确联动
                 const instResp = await fetch('/api/instances');
                 const instData = await instResp.json();
                 runningNames = Object.values(instData)
                     .filter(v => v && v.running === true).map(v => v.name || '');
                 if (runningNames.length > 0) {
                     document.getElementById('rcon-running-names').textContent = runningNames.join('、');
-                    document.getElementById('rcon-running-warning').style.display = '';
                 }
+                const rconInput = document.getElementById('f-rcon-password');
+                const rconDesc = document.getElementById('rcon-desc');
+                const rconWarn = document.getElementById('rcon-running-warning');
+                const sync = () => {
+                    const changed = rconInput.value.trim() !== loadedRcon && runningNames.length > 0;
+                    rconDesc.style.display = changed ? 'none' : '';
+                    rconWarn.style.display = changed ? '' : 'none';
+                };
+                rconInput.addEventListener('input', sync);
+                sync();
             } catch (err) { /* 运行状态获取失败则不显示声明区，保存逻辑不受影响 */ }
         },
         preConfirm: async () => {
