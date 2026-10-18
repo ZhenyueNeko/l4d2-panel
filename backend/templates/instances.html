@@ -606,11 +606,11 @@ window.openGlobalSettings = function() {
                     <input id="f-rcon-password" class="ff-input" autocomplete="off" spellcheck="false">
                 </div>
                 <p class="swal-setting-desc" id="rcon-desc">
-                    填写 = 可获取玩家详细的资料卡<br>
-                    留空 = 不使用RCON
+                    填写：玩家列表显示 SteamID、归属地等完整资料<br>
+                    留空：仅显示名称与连接时长
                 </p>
                 <div id="rcon-running-warning" style="display:none; border:1px solid var(--status-warning, #d97706); border-radius:8px; padding:10px; margin-top:8px;">
-                    <div class="ff-label" style="color:var(--status-warning, #d97706);">
+                    <div class="ff-label" style="color:var(--status-warning, #d97706); font-size:13px;">
                         ⚠ 检测到实例正在运行：<span id="rcon-running-names"></span>
                     </div>
                     <label style="display:flex;align-items:flex-start;gap:6px;font-size:13px;cursor:pointer;margin-top:8px;">
@@ -625,9 +625,9 @@ window.openGlobalSettings = function() {
                     <input id="f-steam-key" class="ff-input" autocomplete="off" spellcheck="false">
                 </div>
                 <p class="swal-setting-desc">
-                    <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>，此处获取你本账号的 key<br>
-                    填写 = 可获取玩家 steam 主页头像<br>
-                    留空 = 使用面板默认头像
+                    <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a> 免费申请，获取你本账号的 key<br>
+                    填写：玩家列表显示 Steam 主页头像<br>
+                    留空：使用面板默认头像
                 </p>
             </div>
         `,
