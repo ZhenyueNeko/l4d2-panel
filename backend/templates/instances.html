@@ -389,13 +389,13 @@ function renderPlayers(data) {
                   data-id64="${p.steamid64}">${avatarImg}</a>`
             : `<span class="pavatar" aria-hidden="true">${avatarImg}</span>`;
         if (p.userid === undefined) {
-            // A2S 回退数据：无 userid/SteamID/ping 字段（RCON 不可用的兜底），渲染简洁卡避免 undefined
+            // A2S 回退数据：无 userid/SteamID/ping 字段（RCON 不可用的兜底），仅展示
+            // 头像 + 名字 + 连接时长；结构对齐 RCON 详情行（名字紧贴头像右侧），时长恒靠右
             return `
-            <div class="player-row enhanced">
+            <div class="player-row enhanced a2s">
                 <span class="pavatar" aria-hidden="true">${avatarImg}</span>
                 <div class="pcol pcol-main">
                     <span class="pname" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
-                    <span class="psub"><span class="plabel">ID</span> --</span>
                 </div>
                 <span class="ptime" title="已连接时长"><i data-feather="clock"></i>${escapeHtml(p.duration_text || '--')}</span>
             </div>`;

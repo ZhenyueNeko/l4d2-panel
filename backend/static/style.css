@@ -2469,6 +2469,10 @@ button.ff-field:focus-visible {
 .player-row .pcol { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .player-row .pcol-main { width: 104px; flex-shrink: 0; }
 .player-row .pcol-geo { flex: 1 1 auto; }
+/* A2S 回退行：无地区/STEAMID 列，名字列改弹性占位——避免 space-between 把三元素
+   结构的中间列推到卡片中央，保证名字紧贴头像右侧、时长恒靠右 */
+.player-row.enhanced.a2s { justify-content: flex-start; }
+.player-row.enhanced.a2s .pcol-main { width: auto; flex: 1 1 auto; }
 .player-row .pline { display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 19px; }
 .player-row .plabel {
     color: var(--text-secondary);
