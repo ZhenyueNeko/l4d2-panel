@@ -576,7 +576,7 @@ function Install-MapPackage() {
         local extract_ok=false
         case "$ext" in
             zip)
-                if unzip -o -q "$staged" -d "$tmp_dir"; then
+                if Unzip-Smart "$staged" "$tmp_dir"; then
                     extract_ok=true
                 else
                     echo "错误: 解压 zip 失败（文件可能已损坏）" >&2
@@ -858,8 +858,83 @@ function Resolve-Path() {
 }
 
 # --- JSON生成辅助函数 ---
+# 字节安全：文件名可能含非 UTF-8 字节（如 GBK 压缩包解压产物）。
+# 按字节读入后依次尝试 UTF-8 / GB18030 解码（GBK 乱码名可被还原成正确中文显示），
+# 均失败再降级为替换符，保证任何输入都产出合法 JSON，列表接口不再因个别文件名崩溃
 json_escape() {
-    printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+    printf '%s' "$1" | python3 -c '
+import json, sys
+raw = sys.stdin.buffer.read()
+text = None
+for enc in ("utf-8", "gb18030"):
+    try:
+        text = raw.decode(enc)
+        break
+    except UnicodeDecodeError:
+        continue
+if text is None:
+    text = raw.decode("utf-8", "replace")
+print(json.dumps(text))
+'
+}
+
+# 编码感知解压 zip：Windows 中文环境压出的 zip 条目名为 GBK 字节且无 UTF-8 标志，
+# unzip 会把原始字节直接落盘产生非法 UTF-8 文件名（进而打崩 list_files/list_maps 的 JSON 拼接）。
+# 改用 python zipfile：条目带 UTF-8 标志直接用原名；否则还原原始字节后依次按 UTF-8/GB18030 解码；
+# 含 ".." 的条目一律跳过（防 zip 路径穿越）。语义等同 unzip -o（同名覆盖），文件按默认 umask 落盘。
+# 用法: Unzip-Smart <zip文件> <目标目录>，成功返回 0；任一条目失败返回 1（错误信息走 stderr）
+function Unzip-Smart() {
+    python3 - "$1" "$2" <<'PYEOF'
+import os, shutil, sys, zipfile
+
+zip_path, dest = sys.argv[1], sys.argv[2]
+dest = os.path.realpath(dest)
+os.makedirs(dest, exist_ok=True)
+
+def entry_name(info):
+    if info.flag_bits & 0x800:                     # 条目自带 UTF-8 标志，zipfile 已正确解码
+        return info.filename
+    try:
+        raw = info.orig_filename.encode("cp437")   # 无标志条目按 CP437 还原出 zip 内原始字节
+    except UnicodeEncodeError:
+        return info.filename
+    for enc in ("utf-8", "gb18030"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", "replace")
+
+try:
+    zf = zipfile.ZipFile(zip_path)
+except (zipfile.BadZipFile, OSError) as e:
+    print("错误: 无法读取 zip 文件: %s" % e, file=sys.stderr)
+    sys.exit(1)
+
+failed = 0
+with zf:
+    for info in zf.infolist():
+        name = entry_name(info).replace("\\", "/").lstrip("/")
+        parts = [p for p in name.split("/") if p not in ("", ".")]
+        if any(p == ".." for p in parts) or (not parts and not info.is_dir()):
+            print("跳过异常条目: %s" % info.orig_filename, file=sys.stderr)
+            failed += 1
+            continue
+        target = os.path.join(dest, *parts) if parts else dest
+        if info.is_dir():
+            os.makedirs(target, exist_ok=True)
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        try:
+            with zf.open(info) as src, open(target, "wb") as out:
+                shutil.copyfileobj(src, out, 1024 * 1024)
+        except OSError as e:
+            print("解压条目失败 %s: %s" % (name, e), file=sys.stderr)
+            failed += 1
+
+if failed:
+    sys.exit(1)
+PYEOF
 }
 
 # --- 插件包备份（Installed_Receipts 回执体系的上层应用） ---
@@ -1333,17 +1408,18 @@ case "$ACTION" in
     
     unzip_file)
         if ! Resolve-Path "$1"; then exit 1; fi
-        
-        local target_dir
+
+        # 注意：本分支位于主调度的 case 中而非函数内，不能用 local
+        # （local 会在 stderr 报错，后端拼错误信息时会优先取 stderr，噪音会混入提示）
         target_dir=$(dirname "$REAL_TARGET_PATH")
 
         if [ ! -f "$REAL_TARGET_PATH" ]; then
             echo "错误: 文件不存在: '$REAL_TARGET_PATH'" >&2; exit 1
         fi
 
-        local output
-        local exit_code
-        local success=false
+        output=""
+        exit_code=0
+        success=false
 
         case "$REAL_TARGET_PATH" in
             *.tar.gz|*.tgz)
@@ -1362,9 +1438,9 @@ case "$ACTION" in
                 if [ "$exit_code" -eq 0 ]; then success=true; fi
                 ;;
             *.zip)
-                output=$(unzip -o "$REAL_TARGET_PATH" -d "$target_dir" 2>&1)
+                output=$(Unzip-Smart "$REAL_TARGET_PATH" "$target_dir" 2>&1)
                 exit_code=$?
-                if [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ]; then success=true; fi
+                if [ "$exit_code" -eq 0 ]; then success=true; fi
                 ;;
             *.rar)
                 output=$(unrar x -o+ "$REAL_TARGET_PATH" "$target_dir" 2>&1)
