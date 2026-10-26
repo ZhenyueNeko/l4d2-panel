@@ -158,7 +158,8 @@ ABOUT_LINKS = {
     'github_repo': 'ZhenyueNeko/l4d2-panel',
     'github_url': 'https://github.com/ZhenyueNeko/l4d2-panel',
     'bilibili_name': 'ZhenyueNeko',
-    'bilibili_url': 'https://space.bilibili.com/',
+    # B 站「面板功能介绍」视频（与 README 视频教程链接保持一致）
+    'bilibili_url': 'https://www.bilibili.com/video/BV1rRHP6qEN2/',
     'upstream_repo': 'Q1en/L4D2-Manager-Panel',
     'upstream_url': 'https://github.com/Q1en/L4D2-Manager-Panel',
 }
