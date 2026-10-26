@@ -29,10 +29,19 @@ git clone https://github.com/ZhenyueNeko/l4d2-panel.git l4d2-panel
 cd l4d2-panel/scripts/
 
 # 3. 交互式菜单：安装系统依赖 → 配置面板信息 → 启动面板
-bash manage.sh
+bash /opt/l4d2-panel/scripts/manage.sh
 ```
 
 ## 视频教程
 
-- [面板功能介绍](https://www.bilibili.com/) 
+- [面板功能介绍](https://www.bilibili.com/video/BV1rRHP6qEN2/?spm_id_from=333.1387.list.card_archive.click) 
+- [面板部署教程](https://www.bilibili.com/video/BV1PznU6YEQK/?spm_id_from=333.1387.list.card_archive.click) 
 
+## 预览截图
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" width="49%" alt="仪表盘" />
+  <img src="docs/screenshots/map_manager.png" width="49%" alt="三方管理" />
+  <img src="docs/screenshots/plugins.png" width="49%" alt="插件管理" />
+  <img src="docs/screenshots/about.png" width="49%" alt="关于项目" />
+</p>
