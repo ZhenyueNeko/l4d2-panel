@@ -1325,25 +1325,53 @@ case "$ACTION" in
         if [ ! -d "$REAL_TARGET_PATH" ]; then
             echo "{\"success\": false, \"error\": \"目录不存在: $REAL_TARGET_PATH\"}" >&2; exit 1
         fi
-        
-        json_parts=""
-        shopt -s nullglob
-        for f in "$REAL_TARGET_PATH"/*; do
-            filename=$(basename "$f")
-            filesize=$(du -sh "$f" | awk '{print $1}')
-            filetype="file"
-            if [ -d "$f" ]; then filetype="directory"; fi
-            modtime=$(date -r "$f" +"%Y-%m-%d %H:%M:%S")
 
-            file_json="{\"name\": $(json_escape "$filename"), \"size\": \"$filesize\", \"type\": \"$filetype\", \"mtime\": \"$modtime\"}"
-            if [ -z "$json_parts" ]; then
-                json_parts="$file_json"
+        # === 批处理版：进程派生数与条目数解耦 ===
+        # 原版每条目派生 5 个子进程（basename/du/awk/date/json_escape 的 python3），
+        # 123 个条目就是 600+ 次派生、耗时 6 秒+。本版全程仅 3 次批量调用：
+        #   ① 一次 du -sh 批量取全部条目的人类可读大小（目录含子树递归，语义与原版一致）
+        #   ② 一次 stat 批量取全部条目的类型与精确到秒的修改时间（LC_ALL=C 固定格式）
+        #   ③ 文件名转义默认纯 bash 完成；名称含 GBK/控制字符等罕见情况才回退 python3
+        shopt -s nullglob
+        entries=("$REAL_TARGET_PATH"/*)
+        count=${#entries[@]}
+        names_ok=1
+
+        du_lines=()
+        stat_rows=()
+        if [ "$count" -gt 0 ]; then
+            mapfile -t du_lines < <(du -sh "${entries[@]}" 2>/dev/null | cut -f1)
+            mapfile -t stat_rows < <(LC_ALL=C stat -c '%F|%y' "${entries[@]}" 2>/dev/null)
+            # 名称整体 UTF-8 校验：通过则走纯 bash 转义；存在 GBK 等历史编码名则回退 python3 逐个转义
+            printf '%s\0' "${entries[@]}" | iconv -f utf-8 -t utf-8 >/dev/null 2>&1 || names_ok=0
+        fi
+
+        i=0
+        for f in "${entries[@]}"; do
+            row=${stat_rows[i]:-}
+            ftype=${row%%|*}
+            dt=${row#*|}
+            mtime=${dt:0:19}
+            if [[ $ftype == "directory" ]]; then jtype="directory"; else jtype="file"; fi
+
+            name=${f##*/}
+            if [[ $names_ok -eq 0 || $name == *[[:cntrl:]]* ]]; then
+                jname=$(json_escape "$name")
             else
-                json_parts="$json_parts,$file_json"
+                jname=${name//\\/\\\\}; jname=${jname//\"/\\\"}
             fi
+
+            frags+=("{\"name\": \"$jname\", \"size\": \"${du_lines[i]:-?}\", \"type\": \"$jtype\", \"mtime\": \"$mtime\"}")
+            i=$((i+1))
         done
-        
-        echo "{\"path\": $(json_escape "$1"), \"files\": [$json_parts], \"success\": true}"
+
+        if [ "$count" -gt 0 ]; then
+            joined=$(IFS=,; printf '%s' "${frags[*]}")
+        else
+            joined=""
+        fi
+        unset frags
+        echo "{\"path\": $(json_escape "$1"), \"files\": [$joined], \"success\": true}"
         ;;
 
     get_file_content)
